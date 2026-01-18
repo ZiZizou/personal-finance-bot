@@ -3,48 +3,24 @@
 #include <vector>
 #include <string>
 #include <sstream>
-#include <numeric>
-#include <algorithm>
 #include <map>
+#include <future>
+#include <mutex>
+#include <cstdlib> // For getenv
 
 #include "json.hpp"
-using json = nlohmann::json;
-
 #include "MarketData.h"
 #include "TradingStrategy.h"
 #include "TechnicalAnalysis.h"
 #include "SentimentAnalyzer.h"
 #include "NewsManager.h"
+#include "NetworkUtils.h"
+#include "Backtester.h"
+#include "Logger.h"
+#include "ReportGenerator.h"
+#include "BlackScholes.h" // Needed for Greeks logic injection if not already in strategy
 
-#define ENABLE_CURL
-
-#ifdef ENABLE_CURL
-#include <curl/curl.h>
-#endif
-
-// --- Fetchers ---
-
-size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
-    size_t totalSize = size * nmemb;
-    userp->append((char*)contents, totalSize);
-    return totalSize;
-}
-
-std::string fetchData(const std::string& url) {
-    CURL* curl;
-    CURLcode res;
-    std::string readBuffer;
-    curl = curl_easy_init();
-    if (curl) {
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0");
-        res = curl_easy_perform(curl);
-        curl_easy_cleanup(curl);
-    }
-    return readBuffer;
-}
+using json = nlohmann::json;
 
 struct Ticker { std::string symbol; std::string type; };
 
@@ -67,158 +43,114 @@ std::vector<Ticker> readTickers(const std::string& filePath) {
     return tickers;
 }
 
-// Fetch Price & Volume
-std::vector<Candle> fetchCandles(const std::string& symbol, const std::string& type) {
-    std::string url;
-    if (type == "stock") {
-        url = "https://query1.finance.yahoo.com/v8/finance/chart/" + symbol + "?interval=1d&range=2y";
-    } else {
-        std::string id = symbol; 
-        std::transform(id.begin(), id.end(), id.begin(), ::tolower);
-        if (id == "btc-usd") id = "bitcoin";
-        url = "https://api.coingecko.com/api/v3/coins/" + id + "/market_chart?vs_currency=usd&days=365";
+// Thread-safe collection of results
+std::mutex resultsMutex;
+std::vector<AnalysisResult> globalResults;
+
+// Function to process a single ticker (for async)
+void processTicker(Ticker t, MLPredictor mlModelCopy) { // Pass ML by value or protect? ML predict is const-ish usually
+    // Note: MLPredictor::predict is const, but extractFeatures is const.
+    // We instantiate a local predictor or use a shared one if thread-safe.
+    // The ML model in our code has state (weights).
+    // For simplicity in this step, we pass a copy or assume pre-trained.
+    
+    Logger::getInstance().log("Analyzing " + t.symbol + "...");
+
+    std::vector<Candle> candles = fetchCandles(t.symbol, t.type);
+    if (candles.size() < 60) { 
+        Logger::getInstance().log("Insufficient Data for " + t.symbol);
+        return; 
+    }
+    
+    // Backtest
+    BacktestResult bt = Backtester::run(candles);
+    
+    Fundamentals fund = fetchFundamentals(t.symbol, t.type);
+    OnChainData onChain = {0.0f, 0.0f, false};
+    if (t.type != "stock") {
+        onChain = fetchOnChainData(t.symbol);
     }
 
-    std::string response = fetchData(url);
-    std::vector<Candle> sortedCandles;
+    std::vector<std::string> news = NewsManager::fetchNews(t.symbol);
+    float sentiment = (!news.empty()) ? SentimentAnalyzer::getInstance().analyze(news) : 0.0f;
+    
+    std::vector<float> prices;
+    for(auto& c : candles) prices.push_back(c.close);
+    SupportResistance levels = identifyLevels(prices, 60); 
+    
+    Signal sig = generateSignal(t.symbol, candles, sentiment, fund, onChain, levels, mlModelCopy);
+    
+    // Greeks Calculation for Options
+    if (sig.option) {
+        float T = (float)sig.option->period_days / 365.0f;
+        // Approx Vol from GARCH or hist
+        // Re-calculating vol here for display (inefficient but distinct from strategy internals)
+        float sigma = 0.30f; // Default if not passed
+        // For accurate reporting, ideally strategy returns the Vol used. 
+        // Let's rely on BlackScholes IV or just calculate Greeks on assumption
+        Greeks g = BlackScholes::calculateGreeks(prices.back(), sig.option->strike, T, 0.04f, sigma, sig.option->type == "Call");
+        
+        std::stringstream ss;
+        ss << sig.reason << " [Delta: " << g.delta << ", Theta: " << g.theta << "]";
+        sig.reason = ss.str();
+    }
 
-    try {
-        json data = json::parse(response);
-        if (type == "stock") {
-            if (data.contains("chart") && data["chart"].contains("result") && !data["chart"]["result"].is_null()) {
-                auto result = data["chart"]["result"][0];
-                if (result.contains("timestamp") && result.contains("indicators")) {
-                    auto timestamps = result["timestamp"];
-                    auto quote = result["indicators"]["quote"][0];
-                    
-                    size_t len = timestamps.size();
-                    for (size_t i = 0; i < len; ++i) {
-                        if (quote["close"][i].is_null()) continue;
-                        Candle c;
-                        c.date = std::to_string(timestamps[i].get<long long>());
-                        c.close = quote["close"][i].get<float>();
-                        // Volume parsing
-                        if (quote.contains("volume") && !quote["volume"][i].is_null()) 
-                            c.volume = quote["volume"][i].get<long long>();
-                        else 
-                            c.volume = 0;
-                            
-                        // OHLC or fallback
-                        c.open = quote.contains("open") && !quote["open"][i].is_null() ? quote["open"][i].get<float>() : c.close;
-                        c.high = quote.contains("high") && !quote["high"][i].is_null() ? quote["high"][i].get<float>() : c.close;
-                        c.low = quote.contains("low") && !quote["low"][i].is_null() ? quote["low"][i].get<float>() : c.close;
-                        
-                        sortedCandles.push_back(c);
-                    }
-                }
-            }
-        } else {
-            // Crypto (CoinGecko Simple)
-            if (data.contains("prices")) {
-                for (const auto& item : data["prices"]) {
-                    Candle c;
-                    c.date = std::to_string(item[0].get<long long>());
-                    c.close = item[1].get<float>();
-                    c.open=c.close; c.high=c.close; c.low=c.close; c.volume=0; 
-                    sortedCandles.push_back(c);
-                }
-                // Need total volumes? CoinGecko has "total_volumes" array separately.
-                if (data.contains("total_volumes")) {
-                    size_t i = 0;
-                    for (const auto& vol : data["total_volumes"]) {
-                        if (i < sortedCandles.size()) sortedCandles[i].volume = (long long)vol[1].get<double>();
-                        i++;
-                    }
-                }
-            }
-        }
-    } catch (...) {}
-    return sortedCandles;
+    AnalysisResult res;
+    res.symbol = t.symbol;
+    res.price = prices.back();
+    res.sentiment = sentiment;
+    res.action = sig.action;
+    res.confidence = sig.confidence;
+    res.reason = sig.reason;
+    res.backtest = bt;
+    res.signal = sig;
+    res.history = candles;
+
+    {
+        std::lock_guard<std::mutex> lock(resultsMutex);
+        globalResults.push_back(res);
+    }
 }
 
-// Fetch Fundamentals (P/E)
-Fundamentals fetchFundamentals(const std::string& symbol, const std::string& type) {
-    Fundamentals fund = {0.0f, 0.0f, 0.0f, false};
-    if (type != "stock") return fund; // Crypto usually N/A for P/E
-
-    std::string url = "https://query1.finance.yahoo.com/v7/finance/quote?symbols=" + symbol;
-    std::string response = fetchData(url);
-    
-    try {
-        json data = json::parse(response);
-        if (data.contains("quoteResponse") && data["quoteResponse"].contains("result")) {
-            auto result = data["quoteResponse"]["result"];
-            if (!result.empty()) {
-                auto q = result[0];
-                if (q.contains("trailingPE") && !q["trailingPE"].is_null()) 
-                    fund.pe_ratio = q["trailingPE"].get<float>();
-                
-                if (q.contains("marketCap") && !q["marketCap"].is_null())
-                    fund.market_cap = q["marketCap"].get<long long>(); // Cast huge number
-                    
-                if (q.contains("fiftyDayAverage") && !q["fiftyDayAverage"].is_null())
-                    fund.fifty_day_avg = q["fiftyDayAverage"].get<float>();
-                    
-                fund.valid = true;
-            }
-        }
-    } catch (...) {}
-    return fund;
+std::string getEnvVar(const std::string& key, const std::string& defaultVal) {
+    char* val = std::getenv(key.c_str());
+    return val ? std::string(val) : defaultVal;
 }
 
 int main() {
-    // SentimentAnalyzer::getInstance().setVerbose(true); // Debug if needed
+    Logger::getInstance().log("Starting Trading Bot 4.0 (Parallel + Reporting)...");
+    
+    // 0. Init API Keys from Env or Default
+    NetworkUtils::setApiKey("FMP", getEnvVar("FMP_KEY", "demo")); 
+    NetworkUtils::setApiKey("COINAPI", getEnvVar("COIN_KEY", "DEMO_KEY")); 
+    NetworkUtils::setApiKey("NEWSAPI", getEnvVar("NEWS_KEY", "DEMO_KEY"));
+    NetworkUtils::setApiKey("HF", getEnvVar("HF_KEY", "DEMO_KEY")); // HuggingFace
+
     SentimentAnalyzer::getInstance().init("sentiment.gguf");
     
     std::vector<Ticker> tickers = readTickers("tickers.csv");
-    std::cout << "Starting Trading Bot 2.0 (Volume + Value + Curves)..." << std::endl;
+    MLPredictor mlModel; // Initial model
 
+    // 1. Parallel Execution
+    std::vector<std::future<void>> futures;
     for (const auto& t : tickers) {
-        std::cout << "\nAnalyzing " << t.symbol << "..." << std::endl;
-        
-        // 1. Data
-        std::vector<Candle> candles = fetchCandles(t.symbol, t.type);
-        if (candles.size() < 60) { std::cout << "  Insufficient Data." << std::endl; continue; }
-        
-        Fundamentals fund = fetchFundamentals(t.symbol, t.type);
-        std::vector<std::string> news = NewsManager::fetchNews(t.symbol);
-        
-        // 2. Analysis
-        float sentiment = (!news.empty()) ? SentimentAnalyzer::getInstance().analyze(news) : 0.0f;
-        
-        // Compute Support/Resistance for Strategy
-        std::vector<float> prices;
-        for(auto& c : candles) prices.push_back(c.close);
-        SupportResistance levels = identifyLevels(prices, 60); // 60 day pivot
-        
-        // 3. Generate Signal
-        Signal sig = generateSignal(t.symbol, candles, sentiment, fund, levels);
-        
-        // 4. Output
-        float current = prices.back();
-        std::cout << "  Price: " << current;
-        if (fund.valid) std::cout << " | P/E: " << fund.pe_ratio;
-        std::cout << " | Sentiment: " << sentiment << std::endl;
-        std::cout << "  Support: " << levels.support << " | Resistance: " << levels.resistance << std::endl;
-        
-        std::cout << "  -> ACTION: " << sig.action 
-                  << " (Conf: " << sig.confidence << "%)" << std::endl;
-                  
-        if (sig.action != "hold") {
-            std::cout << "     Targets: ";
-            for (size_t i = 0; i < sig.targets.size() && i < 3; ++i) {
-                std::cout << sig.targets[i] << (i == sig.targets.size() - 1 || i == 2 ? "" : ", ");
-            }
-            std::cout << std::endl;
-        } else {
-            std::cout << "     Prospective Buy: " << sig.prospectiveBuy << " | Prospective Sell: " << sig.prospectiveSell << std::endl;
-        }
-        
-        if (sig.option) {
-            std::cout << "  -> OPTION: " << sig.option->type 
-                      << " Strike: " << sig.option->strike << std::endl;
-        }
-        std::cout << "     Reason: " << sig.reason << std::endl;
+        // Launch async
+        futures.push_back(std::async(std::launch::async, processTicker, t, mlModel));
     }
+
+    // Wait for all
+    for (auto& f : futures) {
+        f.wait();
+    }
+    
+    Logger::getInstance().log("Analysis Complete. Generating Reports...");
+
+    // 2. Reporting
+    ReportGenerator::generateCSV(globalResults, "report.csv");
+    ReportGenerator::generateHTML(globalResults, "report.html");
+    
+    Logger::getInstance().log("Reports saved to report.csv and report.html");
+    std::cout << "\nDisclaimer: Not financial advice. Past performance is not indicative of future results.\n";
+
     return 0;
 }

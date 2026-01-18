@@ -3,10 +3,196 @@
 #include <cmath>
 #include <algorithm>
 #include <iostream>
-#include <Eigen/Dense> 
+#include <complex>
+#include <vector>
 
-// --- Legacy Helpers (EMA/RSI/MACD/ATR/Cycle) remain unchanged ---
-// (Re-pasting them to ensure file integrity)
+const float PI = 3.14159265358979323846f;
+
+// --- Helper: Simple Matrix Math for Regression (No Eigen) ---
+// Solves Ax = B where A is N*N and B is N*1
+// Uses Gaussian Elimination
+bool solveSystem(std::vector<std::vector<float>>& A, std::vector<float>& B, std::vector<float>& x) {
+    int n = A.size();
+    x.resize(n);
+
+    for (int i = 0; i < n; ++i) {
+        // Pivot
+        int maxRow = i;
+        for (int k = i + 1; k < n; ++k) {
+            if (std::abs(A[k][i]) > std::abs(A[maxRow][i])) maxRow = k;
+        }
+        std::swap(A[i], A[maxRow]);
+        std::swap(B[i], B[maxRow]);
+
+        if (std::abs(A[i][i]) < 1e-9) return false; // Singular
+
+        for (int k = i + 1; k < n; ++k) {
+            float c = -A[k][i] / A[i][i];
+            for (int j = i; j < n; ++j) {
+                if (i == j) A[k][j] = 0;
+                else A[k][j] += c * A[i][j];
+            }
+            B[k] += c * B[i];
+        }
+    }
+
+    // Back subst
+    for (int i = n - 1; i >= 0; --i) {
+        float sum = 0.0f;
+        for (int j = i + 1; j < n; ++j) sum += A[i][j] * x[j];
+        x[i] = (B[i] - sum) / A[i][i];
+    }
+    return true;
+}
+
+// Polynomial Regression using Normal Equation: (X^T * X) * Beta = X^T * Y
+std::vector<float> polyFit(const std::vector<float>& y, int degree) {
+    int n = y.size();
+    int m = degree + 1;
+    
+    // Build X^T * X (Matrix A) and X^T * Y (Vector B)
+    std::vector<std::vector<float>> A(m, std::vector<float>(m, 0.0f));
+    std::vector<float> B(m, 0.0f);
+
+    for (int i = 0; i < n; ++i) {
+        float xi = (float)i;
+        float val = 1.0f;
+        std::vector<float> x_pow(m);
+        for(int j=0; j<m; ++j) { x_pow[j] = val; val *= xi; }
+
+        for (int row = 0; row < m; ++row) {
+            for (int col = 0; col < m; ++col) {
+                A[row][col] += x_pow[row] * x_pow[col];
+            }
+            B[row] += x_pow[row] * y[i];
+        }
+    }
+    
+    std::vector<float> coeffs;
+    solveSystem(A, B, coeffs);
+    return coeffs;
+}
+
+// --- Helper: Calculate Returns ---
+std::vector<float> calculateLogReturns(const std::vector<float>& prices) {
+    std::vector<float> returns;
+    if (prices.size() < 2) return returns;
+    for (size_t i = 1; i < prices.size(); ++i) {
+        returns.push_back(std::log(prices[i] / prices[i - 1]));
+    }
+    return returns;
+}
+
+// --- 1. GARCH(1,1) Volatility Forecast ---
+// Simplified implementation estimating Sigma^2_t = omega + alpha * epsilon^2_{t-1} + beta * Sigma^2_{t-1}
+// We use hardcoded params typical for daily asset returns if optimization is too heavy, 
+// or run a simple iterative MLE if feasible. For "low-overhead", we will use standard params 
+// often cited for financial time series: alpha=0.05, beta=0.9, omega=long_run_var*(1-alpha-beta).
+float computeGARCHVolatility(const std::vector<float>& returns) {
+    if (returns.empty()) return 0.0f;
+    
+    // 1. Calculate long-run variance (unconditional variance)
+    float sum = 0.0f;
+    float mean = std::accumulate(returns.begin(), returns.end(), 0.0f) / returns.size();
+    for (float r : returns) sum += (r - mean) * (r - mean);
+    float variance = sum / returns.size(); // Simple Variance
+
+    // 2. GARCH Parameters (Typical defaults for daily data if not fitting)
+    float alpha = 0.05f; // Reaction to recent shocks
+    float beta = 0.90f;  // Persistence of volatility
+    float omega = variance * (1.0f - alpha - beta); 
+    
+    // 3. Iterate through history to update sigma^2
+    float currentSigma2 = variance; // Initialize with long-run var
+    
+    for (float r : returns) {
+        float epsilon = r - mean; // Shock
+        currentSigma2 = omega + (alpha * epsilon * epsilon) + (beta * currentSigma2);
+    }
+    
+    return std::sqrt(currentSigma2); // Return volatility (std dev), not variance
+}
+
+
+// --- 2. Adaptive RSI ---
+// Scales period based on Volatility (Standard Deviation)
+// High Volatility -> Shorter Period (Catch fast moves)
+// Low Volatility -> Longer Period (Avoid noise)
+float computeAdaptiveRSI(const std::vector<float>& prices, int basePeriod) {
+    if (prices.size() < 30) return computeRSI(prices, basePeriod);
+
+    // Calculate recent volatility (last 20 days)
+    int volPeriod = 20;
+    float sum = 0.0f;
+    for(size_t i=prices.size()-volPeriod; i<prices.size(); ++i) sum += prices[i];
+    float mean = sum / volPeriod;
+    float sqSum = 0.0f;
+    for(size_t i=prices.size()-volPeriod; i<prices.size(); ++i) sqSum += (prices[i]-mean)*(prices[i]-mean);
+    float stdDev = std::sqrt(sqSum / volPeriod);
+    
+    // Normalize StdDev relative to price (CV)
+    float cv = stdDev / mean;
+    
+    // Scaling Factor: If CV is high (>2%), shorten period. If low (<1%), lengthen.
+    // Base CV approx 0.015 for moderate stock.
+    float scaler = 0.015f / (cv + 0.0001f); // Avoid div by zero
+    
+    int newPeriod = (int)(basePeriod * scaler);
+    newPeriod = std::clamp(newPeriod, 7, 28); // Clamp between 7 and 28
+    
+    return computeRSI(prices, newPeriod);
+}
+
+// --- 3. Fourier Cycle Detection (Enhanced) ---
+// Uses Discrete Fourier Transform (DFT) to find dominant frequency
+int detectCycle(const std::vector<float>& prices) {
+    size_t N = prices.size();
+    if (N < 40) return 0; // Need enough data
+
+    // Detrend data (Linear Regression removal)
+    std::vector<float> detrended(N);
+    float x_mean = (N - 1) / 2.0f;
+    float y_mean = std::accumulate(prices.begin(), prices.end(), 0.0f) / N;
+    
+    float num = 0.0f, den = 0.0f;
+    for(size_t i=0; i<N; ++i) {
+        num += (i - x_mean) * (prices[i] - y_mean);
+        den += (i - x_mean) * (i - x_mean);
+    }
+    float slope = num / den;
+    float intercept = y_mean - slope * x_mean;
+    
+    for(size_t i=0; i<N; ++i) {
+        detrended[i] = prices[i] - (slope * i + intercept);
+    }
+
+    // DFT for lower frequencies (Periods 10 to N/2)
+    float maxPower = 0.0f;
+    int dominantPeriod = 0;
+
+    // We check periods from 5 to 60 days
+    for (int P = 5; P <= 60 && P < (int)N/2; ++P) {
+        float real = 0.0f;
+        float imag = 0.0f;
+        float k = (float)N / P; // Frequency index approx
+        
+        for (size_t n = 0; n < N; ++n) {
+            float angle = 2.0f * PI * k * n / N;
+            real += detrended[n] * std::cos(angle);
+            imag -= detrended[n] * std::sin(angle);
+        }
+        float power = std::sqrt(real*real + imag*imag);
+        if (power > maxPower) {
+            maxPower = power;
+            dominantPeriod = P;
+        }
+    }
+    
+    return dominantPeriod;
+}
+
+
+// --- Legacy Helpers (EMA/RSI/MACD/ATR) ---
 
 std::vector<float> computeEMA(const std::vector<float>& data, int period) {
     std::vector<float> ema;
@@ -76,88 +262,35 @@ float computeATR(const std::vector<Candle>& candles, int period) {
     return atr;
 }
 
-int detectCycle(const std::vector<float>& prices) {
-    size_t n = prices.size();
-    if (n < 40) return 0;
-    float mean = std::accumulate(prices.begin(), prices.end(), 0.0f) / n;
-    float denom = 0.0f;
-    for(float p : prices) denom += (p - mean) * (p - mean);
-    
-    int bestLag = 0;
-    float maxCorr = 0.5f;
-    for (int lag = 1; lag <= 30; ++lag) {
-        float num = 0.0f;
-        for (size_t i = lag; i < n; ++i) num += (prices[i] - mean) * (prices[i - lag] - mean);
-        float corr = num / denom;
-        if (corr > maxCorr) { maxCorr = corr; bestLag = lag; }
-    }
-    return bestLag;
-}
-
 float forecastPrice(const std::vector<float>& prices, int horizon) {
-    int n = (int)prices.size();
-    if (n < 2) return prices.back();
-    Eigen::VectorXf y(n);
-    Eigen::MatrixXf X(n, 2);
-    for (int i = 0; i < n; ++i) {
-        y(i) = prices[i];
-        X(i, 0) = (float)i;
-        X(i, 1) = 1.0f;
-    }
-    Eigen::Vector2f beta = X.colPivHouseholderQr().solve(y);
-    return beta(0) * (n - 1 + horizon) + beta(1);
+    if (prices.size() < 2) return prices.empty() ? 0.0f : prices.back();
+    // Linear is Poly degree 1
+    std::vector<float> coeffs = polyFit(prices, 1);
+    if (coeffs.empty()) return prices.back();
+    
+    float x = (float)(prices.size() - 1 + horizon);
+    return coeffs[0] + coeffs[1] * x;
 }
-
-// --- NEW IMPLEMENTATIONS ---
 
 // Polynomial Regression (Degree 2 = Parabola)
 float forecastPricePoly(const std::vector<float>& prices, int horizon, int degree) {
-    int n = (int)prices.size();
-    if (n < degree + 1) return prices.back();
-
-    Eigen::VectorXf y(n);
-    Eigen::MatrixXf X(n, degree + 1);
-
-    for (int i = 0; i < n; ++i) {
-        y(i) = prices[i];
-        float val = 1.0f;
-        for (int j = 0; j <= degree; ++j) {
-            X(i, j) = val; // Columns: 1, x, x^2
-            val *= (float)i; 
-        }
-    }
-
-    // Solve for coefficients
-    Eigen::VectorXf beta = X.colPivHouseholderQr().solve(y);
-
-    // Predict
-    float futureX = (float)(n - 1 + horizon);
-    float forecast = 0.0f;
-    float val = 1.0f;
-    for (int j = 0; j <= degree; ++j) {
-        forecast += beta(j) * val;
-        val *= futureX;
-    }
+    if (prices.size() < (size_t)degree + 1) return prices.empty() ? 0.0f : prices.back();
     
-    return forecast;
-}
-
-// On-Balance Volume (OBV)
-// Measures buying/selling pressure
-float computeOBV(const std::vector<Candle>& candles) {
-    if (candles.empty()) return 0.0f;
-    float obv = 0.0f;
-    for (size_t i = 1; i < candles.size(); ++i) {
-        if (candles[i].close > candles[i-1].close) {
-            obv += (float)candles[i].volume;
-        } else if (candles[i].close < candles[i-1].close) {
-            obv -= (float)candles[i].volume;
-        }
+    std::vector<float> coeffs = polyFit(prices, degree);
+    if (coeffs.empty()) return prices.back();
+    
+    float x = (float)(prices.size() - 1 + horizon);
+    float val = 1.0f;
+    float y = 0.0f;
+    
+    for (float c : coeffs) {
+        y += c * val;
+        val *= x;
     }
-    return obv;
+    return y;
 }
 
-// Simple Support/Resistance (Min/Max of last Period)
+// Support/Resistance (Min/Max of last Period)
 SupportResistance identifyLevels(const std::vector<float>& prices, int period) {
     SupportResistance levels = {0.0f, 0.0f};
     if (prices.empty()) return levels;
@@ -177,7 +310,6 @@ SupportResistance identifyLevels(const std::vector<float>& prices, int period) {
 }
 
 // Find Local Extrema (Peaks and Valleys)
-// Uses a rolling window to find points that are higher/lower than neighbors
 std::vector<float> findLocalExtrema(const std::vector<float>& prices, int period, bool findMaxima) {
     std::vector<float> targets;
     if (prices.size() < 10) return targets;
@@ -253,7 +385,6 @@ BollingerBands computeBollingerBands(const std::vector<float>& prices, int perio
 }
 
 // ADX Implementation
-// Uses Wilder's Smoothing for TR, +DM, -DM
 ADXResult computeADX(const std::vector<Candle>& candles, int period) {
     ADXResult res = {0.0f, 0.0f, 0.0f};
     if (candles.size() < (size_t)period * 2) return res; // Need warmup
@@ -327,8 +458,6 @@ ADXResult computeADX(const std::vector<Candle>& candles, int period) {
     return res;
 }
 
-// --- RECENT ADDITIONS: Candlestick & Squeeze ---
-
 PatternResult detectCandlestickPattern(const std::vector<Candle>& candles) {
     PatternResult res = {"", 0.0f};
     if (candles.size() < 3) return res;
@@ -349,16 +478,14 @@ PatternResult detectCandlestickPattern(const std::vector<Candle>& candles) {
     bool isBullish = c.close > c.open;
     bool isBearish = c.close < c.open;
 
-    // 1. Hammer (Bullish Reversal)
-    // Small body, long lower shadow (2x body), little upper shadow
+    // 1. Hammer 
     if (lowerShadow > 2.0f * body && upperShadow < body * 0.5f && isBullish) {
         res.name = "Hammer";
         res.score = 0.5f;
         return res;
     }
 
-    // 2. Shooting Star (Bearish Reversal)
-    // Small body, long upper shadow (2x body), little lower shadow
+    // 2. Shooting Star 
     if (upperShadow > 2.0f * body && lowerShadow < body * 0.5f && isBearish) {
         res.name = "Shooting Star";
         res.score = -0.5f;
@@ -366,7 +493,6 @@ PatternResult detectCandlestickPattern(const std::vector<Candle>& candles) {
     }
 
     // 3. Bullish Engulfing
-    // Previous red, current green, current body covers previous body completely
     bool pBearish = p.close < p.open;
     if (pBearish && isBullish && c.close > p.open && c.open < p.close) {
          res.name = "Bullish Engulfing";
@@ -382,11 +508,10 @@ PatternResult detectCandlestickPattern(const std::vector<Candle>& candles) {
         return res;
     }
 
-    // 5. Doji (Indecision)
-    // Body is very small relative to range
+    // 5. Doji 
     if (body < 0.1f * range && range > avgBody) {
         res.name = "Doji";
-        res.score = 0.0f; // Neutral, but signals potential reversal
+        res.score = 0.0f; 
         return res;
     }
 
@@ -395,20 +520,6 @@ PatternResult detectCandlestickPattern(const std::vector<Candle>& candles) {
 
 bool checkVolatilitySqueeze(const std::vector<float>& prices, int lookback, float percentile) {
     if (prices.size() < (size_t)lookback) return false;
-
-    // 1. Calculate historical bandwidths
-    std::vector<float> bandwidths;
-    for (size_t i = prices.size() - lookback; i < prices.size(); ++i) {
-        // For efficiency, we just compute local BB for each point. 
-        // This is O(N*M), slow if lookback is huge. 
-        // Optimized: just check current bandwidth against min/max of recent.
-        // But for correctness, let's just use the current BB function on sub-ranges? 
-        // Too slow. Let's do a sliding window approx or just precompute all.
-    }
-    
-    // Optimized approach: We just need the CURRENT bandwidth and compare it to the last 'lookback' bandwidths.
-    // We already have a function computeBollingerBands. Let's assume we call it iteratively.
-    // Actually, let's just calculate bandwidths on the fly for the last N days.
     
     std::vector<float> history;
     int bbPeriod = 20;

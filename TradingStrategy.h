@@ -4,6 +4,7 @@
 #include <optional>
 #include "MarketData.h"
 #include "TechnicalAnalysis.h" // For SupportResistance struct
+#include "MLPredictor.h"      // New ML integration
 
 struct OptionSignal {
     std::string type; // "call" or "put"
@@ -23,11 +24,20 @@ struct Signal {
     // For Hold signals:
     float prospectiveBuy;
     float prospectiveSell;
+    
+    // ML Prediction debug
+    float mlForecast;
 };
+
+// Regime Detection
+// Returns: "Bull", "Bear", "Sideways", "HighVol"
+std::string detectMarketRegime(const std::vector<float>& prices);
 
 // Updated Signature
 Signal generateSignal(const std::string& symbol, 
                       const std::vector<Candle>& candles, 
                       float sentimentScore,
                       const Fundamentals& fund,
-                      const SupportResistance& levels);
+                      const OnChainData& onChain,
+                      const SupportResistance& levels,
+                      MLPredictor& mlModel); // Pass by ref to allow state update if we were training inline (though we likely train before)

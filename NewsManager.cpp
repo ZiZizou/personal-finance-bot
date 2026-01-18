@@ -1,40 +1,15 @@
 #include "NewsManager.h"
+#include "NetworkUtils.h"
+#include "json.hpp"
 #include <iostream>
 #include <vector>
 #include <string>
 #include <regex>
-#include "json.hpp"
 
-#include <curl/curl.h>
+using json = nlohmann::json;
 
-static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
-    size_t totalSize = size * nmemb;
-    userp->append((char*)contents, totalSize);
-    return totalSize;
-}
+// --- Helper Functions ---
 
-std::string fetchURL(const std::string& url) {
-    CURL* curl;
-    CURLcode res;
-    std::string readBuffer;
-    curl = curl_easy_init();
-    if (curl) {
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-        // Mimic a browser to avoid being blocked
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
-        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-        res = curl_easy_perform(curl);
-        if (res != CURLE_OK) {
-             std::cerr << "News Fetch Error: " << curl_easy_strerror(res) << std::endl;
-        }
-        curl_easy_cleanup(curl);
-    }
-    return readBuffer;
-}
-
-// Helper to remove XML tags and clean text
 std::string cleanTitle(std::string text) {
     // Remove CDATA if present
     size_t cdata_start = text.find("<![CDATA[");
@@ -47,26 +22,21 @@ std::string cleanTitle(std::string text) {
     return text;
 }
 
-std::vector<std::string> NewsManager::fetchNews(const std::string& symbol) {
+#include "Logger.h" // Add Logger
+
+// ... (existing includes)
+
+std::vector<std::string> fetchYahooRSS(const std::string& symbol) {
     std::vector<std::string> headlines;
-    std::string target = symbol;
-    
-    // Adjust symbol for Yahoo RSS if needed
-    // Crypto on Yahoo is usually BTC-USD, stocks are just tickers
-    
-    std::string url = "https://feeds.finance.yahoo.com/rss/2.0/headline?s=" + target + "&region=US&lang=en-US";
-    
-    std::cout << "     Fetching RSS: " << url << "..." << std::endl;
-    std::string rssContent = fetchURL(url);
+    // Yahoo RSS for specific ticker
+    std::string url = "https://feeds.finance.yahoo.com/rss/2.0/headline?s=" + symbol + "&region=US&lang=en-US";
+    std::string rssContent = NetworkUtils::fetchData(url); // Uses cache & retry
 
     if (rssContent.empty()) {
-        std::cerr << "     Warning: Empty response from RSS feed." << std::endl;
+        Logger::getInstance().log("RSS fetch failed/empty for " + symbol);
         return headlines;
     }
 
-    // Simple XML Parsing for <title> tags inside <item>
-    // We avoid full XML libraries to keep dependencies low, using string search logic.
-    
     std::string itemTag = "<item>";
     std::string endItemTag = "</item>";
     std::string titleTag = "<title>";
@@ -75,11 +45,10 @@ std::vector<std::string> NewsManager::fetchNews(const std::string& symbol) {
     size_t pos = 0;
     int count = 0;
     
-    while ((pos = rssContent.find(itemTag, pos)) != std::string::npos && count < 5) { // Limit to 5 latest articles
+    while ((pos = rssContent.find(itemTag, pos)) != std::string::npos && count < 5) {
         size_t endPos = rssContent.find(endItemTag, pos);
         if (endPos == std::string::npos) break;
         
-        // Look for title inside this item
         size_t titleStart = rssContent.find(titleTag, pos);
         if (titleStart != std::string::npos && titleStart < endPos) {
             titleStart += titleTag.length();
@@ -88,11 +57,8 @@ std::vector<std::string> NewsManager::fetchNews(const std::string& symbol) {
             if (titleEnd != std::string::npos) {
                 std::string rawTitle = rssContent.substr(titleStart, titleEnd - titleStart);
                 std::string clean = cleanTitle(rawTitle);
-                
-                // Filter out generic Yahoo titles
                 if (clean.find("Yahoo Finance") == std::string::npos) {
                     headlines.push_back(clean);
-                    // std::cout << "     - Found: " << clean << std::endl;
                     count++;
                 }
             }
@@ -100,10 +66,42 @@ std::vector<std::string> NewsManager::fetchNews(const std::string& symbol) {
         pos = endPos + endItemTag.length();
     }
     
-    if (headlines.empty()) {
-        // Fallback for empty feeds (sometimes happens with generic tickers)
-        // std::cout << "     No news found in RSS." << std::endl;
-    }
-
+    Logger::getInstance().log("Fetched " + std::to_string(headlines.size()) + " headlines for " + symbol);
     return headlines;
+}
+
+std::vector<std::string> fetchNewsAPI(const std::string& symbol) {
+    std::vector<std::string> headlines;
+    std::string key = NetworkUtils::getApiKey("NEWSAPI");
+    if (key == "DEMO" || key.empty()) return headlines;
+
+    std::string url = "https://newsapi.org/v2/everything?q=" + symbol + "&apiKey=" + key + "&pageSize=5&language=en";
+    std::string response = NetworkUtils::fetchData(url);
+
+    if (response.empty()) return headlines;
+
+    try {
+        json data = json::parse(response);
+        if (data.contains("articles")) {
+            for (const auto& article : data["articles"]) {
+                if (article.contains("title") && !article["title"].is_null()) {
+                    headlines.push_back(article["title"].get<std::string>());
+                }
+            }
+        }
+    } catch (...) {}
+    return headlines;
+}
+
+std::vector<std::string> NewsManager::fetchNews(const std::string& symbol) {
+    // 1. Try NewsAPI (High Quality, Sentiment Preprocessed potential)
+    std::vector<std::string> news = fetchNewsAPI(symbol);
+    
+    // 2. Supplement with Yahoo RSS if needed
+    if (news.empty()) {
+        std::vector<std::string> rssNews = fetchYahooRSS(symbol);
+        news.insert(news.end(), rssNews.begin(), rssNews.end());
+    }
+    
+    return news;
 }

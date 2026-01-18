@@ -1,0 +1,37 @@
+[
+  {
+    "symbol": "OUST",
+    "name": "Ouster, Inc.",
+    "currency": "USD",
+    "exchangeFullName": "NASDAQ",
+    "exchange": "NASDAQ"
+  },
+  {
+    "symbol": "OUSTZ",
+    "name": "Ouster, Inc.",
+    "currency": "USD",
+    "exchangeFullName": "NASDAQ Global Market",
+    "exchange": "NASDAQ"
+  },
+  {
+    "symbol": "OUSTW",
+    "name": "Ouster, Inc.",
+    "currency": "USD",
+    "exchangeFullName": "NASDAQ Global Market",
+    "exchange": "NASDAQ"
+  },
+  {
+    "symbol": "OUST-WT",
+    "name": "Ouster, Inc.",
+    "currency": "USD",
+    "exchangeFullName": "New York Stock Exchange",
+    "exchange": "NYSE"
+  },
+  {
+    "symbol": "OUST-WTA",
+    "name": "Ouster, Inc.",
+    "currency": "USD",
+    "exchangeFullName": "New York Stock Exchange",
+    "exchange": "NYSE"
+  }
+]
