@@ -1,10 +1,96 @@
-*.csv
+# Build artifacts
 *.exe
-vendor
-*.txt
-*.gguf
-.cache
-.gemini-clipboard
-node_modules
-*.html
+*.obj
+*.o
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+*.out
+*.pdb
+*.ilk
+*.exp
+
+# Build directories
+build/
+out/
+bin/
+lib/
+Debug/
+Release/
+x64/
+x86/
+cmake-build-*/
+
+# C++ precompiled headers
+*.gch
+*.pch
+
+# IDE and editors
+.vs/
+.vscode/
+*.vcxproj.user
+*.suo
+*.sln.docstates
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
 *.logh
+logs/
+
+# Data files
+*.csv
+*.json
+!package.json
+!tsconfig.json
+
+# ML models
+*.gguf
+*.bin
+*.onnx
+*.pt
+*.pth
+models/
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+credentials*
+secrets*
+config.local.*
+
+# Dependencies
+vendor/
+node_modules/
+packages/
+
+# Cache directories
+.cache/
+.gemini-clipboard/
+__pycache__/
+*.pyc
+
+# Claude Code
+.claude/
+
+# Generated files
+*.html
+*.txt
+!README.txt
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
