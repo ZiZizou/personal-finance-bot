@@ -3,3 +3,8 @@
 vendor
 *.txt
 *.gguf
+.cache
+.gemini-clipboard
+node_modules
+*.html
+*.logh
