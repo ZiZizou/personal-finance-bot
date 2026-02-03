@@ -223,12 +223,16 @@ Signal generateSignal(const std::string& symbol,
         sig.targets = filterTargets(resistanceLevels, true);
         sig.exit = sig.targets[0]; 
         
-        sig.confidence = std::abs(blended_score) * 100.0f;
+        // Rescale Confidence: 0.25 -> 50%, 1.0 -> 100%
+        float normalized = 50.0f + ((blended_score - 0.25f) / 0.75f) * 50.0f;
+        sig.confidence = std::clamp(normalized, 50.0f, 100.0f);
+        
         sig.reason = "Buy (Score " + std::to_string(blended_score) + ") [" + regime + " Regime]";
         if (highRisk) sig.reason += " [High Risk]";
         
-        // Kelly
-        float winProb = 0.55f + (sig.confidence / 100.0f) * 0.20f; 
+        // Kelly (Use raw score for probability estimation to preserve logic)
+        // Original: 0.55 + (confidence/100)*0.20. where confidence was score*100.
+        float winProb = 0.55f + blended_score * 0.20f; 
         float riskReward = (sig.exit - sig.entry) / (sig.entry - levels.support); // Target / Stop
         // Safety: ensure positive risk reward calc
         if (sig.entry <= levels.support) riskReward = 2.0f; // Default if price at/below support
@@ -241,12 +245,21 @@ Signal generateSignal(const std::string& symbol,
         sig.targets = filterTargets(supportLevels, false);
         sig.exit = sig.targets[0]; 
 
-        sig.confidence = std::abs(blended_score) * 100.0f;
+        // Rescale Confidence: -0.25 -> 50%, -1.0 -> 100%
+        float absScore = std::abs(blended_score);
+        float normalized = 50.0f + ((absScore - 0.25f) / 0.75f) * 50.0f;
+        sig.confidence = std::clamp(normalized, 50.0f, 100.0f);
+        
         sig.reason = "Sell (Score " + std::to_string(blended_score) + ") [" + regime + " Regime]";
         
     } else {
         sig.action = "hold";
-        sig.confidence = (1.0f - std::abs(blended_score)) * 100.0f;
+        
+        // Rescale Hold Confidence: 0 -> 100%, 0.25 -> 50%
+        float absScore = std::abs(blended_score);
+        float normalized = 50.0f + ((0.25f - absScore) / 0.25f) * 50.0f;
+        sig.confidence = std::clamp(normalized, 50.0f, 100.0f);
+        
         sig.reason = "Hold [" + regime + "]";
         
         auto buyTargets = filterTargets(supportLevels, false); 

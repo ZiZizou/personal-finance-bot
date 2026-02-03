@@ -5,6 +5,7 @@
 #include <atomic>
 
 struct llama_model;
+struct llama_context;
 
 struct SentimentResult {
     float score;      // -1.0 (Strong Neg) to 1.0 (Strong Pos)
@@ -36,8 +37,10 @@ private:
     SentimentAnalyzer& operator=(const SentimentAnalyzer&) = delete;
 
     llama_model* model = nullptr;
+    llama_context* ctx = nullptr;
     bool initialized = false;
     bool verbose = false; // Default false
+    bool llamaReady = false; // True if local model is loaded and ready
     std::mutex mutex;
 };
 

@@ -73,9 +73,15 @@ std::vector<std::string> fetchYahooRSS(const std::string& symbol) {
 std::vector<std::string> fetchNewsAPI(const std::string& symbol) {
     std::vector<std::string> headlines;
     std::string key = NetworkUtils::getApiKey("NEWSAPI");
-    if (key == "DEMO" || key.empty()) return headlines;
+    
+    if (key == "DEMO" || key.empty()) {
+        Logger::getInstance().log("NewsAPI key missing/demo. Skipping NewsAPI for " + symbol);
+        return headlines;
+    }
 
     std::string url = "https://newsapi.org/v2/everything?q=" + symbol + "&apiKey=" + key + "&pageSize=5&language=en";
+    Logger::getInstance().log("Fetching NewsAPI: " + url); // Log the endpoint usage
+    
     std::string response = NetworkUtils::fetchData(url);
 
     if (response.empty()) return headlines;
@@ -99,6 +105,7 @@ std::vector<std::string> NewsManager::fetchNews(const std::string& symbol) {
     
     // 2. Supplement with Yahoo RSS if needed
     if (news.empty()) {
+        Logger::getInstance().log("Falling back to Yahoo RSS for " + symbol);
         std::vector<std::string> rssNews = fetchYahooRSS(symbol);
         news.insert(news.end(), rssNews.begin(), rssNews.end());
     }

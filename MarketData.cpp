@@ -36,6 +36,7 @@ std::vector<Candle> fetchCandles(const std::string& symbol, const std::string& t
     
     // Yahoo Chart API v8
     std::string url = "https://query1.finance.yahoo.com/v8/finance/chart/" + ySymbol + "?interval=1d&range=2y";
+    // std::cout << std::endl << "URL: " << url << std::endl;
 
     std::string response = NetworkUtils::fetchData(url);
     if (response.empty()) return candles;
@@ -94,6 +95,7 @@ Fundamentals fetchFundamentals(const std::string& symbol, const std::string& typ
     
     // Yahoo Quote API v7
     std::string url = "https://query1.finance.yahoo.com/v7/finance/quote?symbols=" + ySymbol;
+    // std::cout << std::endl << "URL: " << url << std::endl;
     
     std::string response = NetworkUtils::fetchData(url);
     if (response.empty()) return fund;

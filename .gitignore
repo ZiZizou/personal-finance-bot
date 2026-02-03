@@ -11,6 +11,7 @@
 *.pdb
 *.ilk
 *.exp
+nul
 
 # Build directories
 build/
