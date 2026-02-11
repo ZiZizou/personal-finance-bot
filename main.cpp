@@ -30,6 +30,7 @@
 #include "Strategies/MLStrategy.h"
 #include "WalkForward.h"
 #include "VolatilityModels.h"
+#include "LiveSignals.h"
 
 using json = nlohmann::json;
 
@@ -80,15 +81,15 @@ void processTicker(Ticker t, MLPredictor mlModelCopy) {
     // BacktestResult btLegacy = Backtester::run(candles);
 
     Fundamentals fund = fetchFundamentals(t.symbol, t.type);
-    OnChainData onChain = {0.0f, 0.0f, false};
+    OnChainData onChain = {0.0, 0.0, false};
     if (t.type != "stock") {
         onChain = fetchOnChainData(t.symbol);
     }
 
     std::vector<std::string> news = NewsManager::fetchNews(t.symbol);
-    float sentiment = (!news.empty()) ? SentimentAnalyzer::getInstance().analyze(news) : 0.0f;
+    double sentiment = (!news.empty()) ? (double)SentimentAnalyzer::getInstance().analyze(news) : 0.0;
 
-    std::vector<float> prices;
+    std::vector<double> prices;
     for(auto& c : candles) prices.push_back(c.close);
     SupportResistance levels = identifyLevels(prices, 60);
 
@@ -96,9 +97,9 @@ void processTicker(Ticker t, MLPredictor mlModelCopy) {
 
     // Greeks Calculation for Options
     if (sig.option) {
-        float T = (float)sig.option->period_days / 365.0f;
-        float sigma = 0.30f;
-        Greeks g = BlackScholes::calculateGreeks(prices.back(), sig.option->strike, T, 0.04f, sigma, sig.option->type == "Call");
+        double T = (double)sig.option->period_days / 365.0;
+        double sigma = 0.30;
+        Greeks g = BlackScholes::calculateGreeks(prices.back(), sig.option->strike, T, 0.04, sigma, sig.option->type == "Call");
 
         std::stringstream ss;
         ss << sig.reason << " [Delta: " << g.delta << ", Theta: " << g.theta << "]";
@@ -193,6 +194,31 @@ int main() {
     auto configResult = Config::getInstance().initialize();
     if (configResult.isError()) {
         Logger::getInstance().log("Warning: " + configResult.error().message);
+    }
+
+    // Check execution mode
+    std::string mode = Config::getInstance().getString("MODE", "backtest");
+
+    if (mode == "live_signals") {
+        Logger::getInstance().log("Starting in LIVE SIGNALS mode...");
+
+        // Configure live signals from environment
+        LiveSignalsConfig liveConfig;
+        liveConfig.barSizeMinutes = Config::getInstance().getInt("BAR_SIZE_MINUTES", 60);
+        liveConfig.warmupDays = Config::getInstance().getInt("WARMUP_DAYS", 60);
+        liveConfig.outputFile = Config::getInstance().getString("LIVE_OUTPUT_CSV", "live_signals.csv");
+        liveConfig.includeNews = Config::getInstance().getBool("LIVE_INCLUDE_NEWS", true);
+        liveConfig.includeSentiment = Config::getInstance().getBool("LIVE_INCLUDE_SENTIMENT", true);
+        liveConfig.numWorkers = Config::getInstance().getInt("NUM_WORKERS", 4);
+        liveConfig.settleDelaySeconds = Config::getInstance().getInt("SETTLE_DELAY_SECONDS", 3);
+
+        // Initialize sentiment analyzer for live mode
+        SentimentAnalyzer::getInstance().init("sentiment.gguf");
+
+        // Run live signals mode (blocks until stopped)
+        runLiveSignals(liveConfig);
+
+        return 0;
     }
 
     // Set API keys from config (all optional - Yahoo Finance works without keys)

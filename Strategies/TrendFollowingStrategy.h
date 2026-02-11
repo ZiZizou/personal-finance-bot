@@ -11,14 +11,14 @@ private:
     int fastMAPeriod_ = 10;
     int slowMAPeriod_ = 30;
     int adxPeriod_ = 14;
-    float adxThreshold_ = 25.0f;  // Minimum ADX for trend confirmation
+    double adxThreshold_ = 25.0;  // Minimum ADX for trend confirmation
     bool useMACD_ = false;
-    float atrMultiplierForStop_ = 2.5f;
+    double atrMultiplierForStop_ = 2.5;
 
     // Helper to compute SMA
-    float computeSMA(const std::vector<float>& prices, int period, int endIdx) const {
-        if (endIdx < period - 1) return 0.0f;
-        float sum = 0.0f;
+    double computeSMA(const std::vector<double>& prices, int period, int endIdx) const {
+        if (endIdx < period - 1) return 0.0;
+        double sum = 0.0;
         for (int i = endIdx - period + 1; i <= endIdx; ++i) {
             sum += prices[i];
         }
@@ -26,15 +26,15 @@ private:
     }
 
     // Helper to compute EMA
-    std::vector<float> computeEMAVector(const std::vector<float>& data, int period) const {
-        std::vector<float> ema(data.size(), 0.0f);
+    std::vector<double> computeEMAVector(const std::vector<double>& data, int period) const {
+        std::vector<double> ema(data.size(), 0.0);
         if (data.empty() || (int)data.size() < period) return ema;
 
-        float sum = 0.0f;
+        double sum = 0.0;
         for (int i = 0; i < period; ++i) sum += data[i];
         ema[period - 1] = sum / period;
 
-        float multiplier = 2.0f / (period + 1.0f);
+        double multiplier = 2.0 / (period + 1.0);
         for (size_t i = period; i < data.size(); ++i) {
             ema[i] = (data[i] - ema[i - 1]) * multiplier + ema[i - 1];
         }
@@ -44,10 +44,10 @@ private:
 public:
     TrendFollowingStrategy()
         : StrategyBase("TrendFollowing", 60) {
-        addParam("fastMAPeriod", 10.0f, 5.0f, 20.0f, 1.0f);
-        addParam("slowMAPeriod", 30.0f, 20.0f, 50.0f, 5.0f);
-        addParam("adxThreshold", 25.0f, 15.0f, 35.0f, 5.0f);
-        addParam("adxPeriod", 14.0f, 10.0f, 20.0f, 2.0f);
+        addParam("fastMAPeriod", 10.0, 5.0, 20.0, 1.0);
+        addParam("slowMAPeriod", 30.0, 20.0, 50.0, 5.0);
+        addParam("adxThreshold", 25.0, 15.0, 35.0, 5.0);
+        addParam("adxPeriod", 14.0, 10.0, 20.0, 2.0);
     }
 
     StrategySignal generateSignal(const std::vector<Candle>& history, size_t idx) override {
@@ -56,23 +56,23 @@ public:
         }
 
         // Extract close prices
-        std::vector<float> closes;
+        std::vector<double> closes;
         for (const auto& c : history) closes.push_back(c.close);
 
         int lastIdx = (int)closes.size() - 1;
 
         // Calculate moving averages
-        float fastMA = computeSMA(closes, fastMAPeriod_, lastIdx);
-        float slowMA = computeSMA(closes, slowMAPeriod_, lastIdx);
-        float prevFastMA = computeSMA(closes, fastMAPeriod_, lastIdx - 1);
-        float prevSlowMA = computeSMA(closes, slowMAPeriod_, lastIdx - 1);
+        double fastMA = computeSMA(closes, fastMAPeriod_, lastIdx);
+        double slowMA = computeSMA(closes, slowMAPeriod_, lastIdx);
+        double prevFastMA = computeSMA(closes, fastMAPeriod_, lastIdx - 1);
+        double prevSlowMA = computeSMA(closes, slowMAPeriod_, lastIdx - 1);
 
         // Calculate ADX for trend strength
         ADXResult adx = computeADX(history, adxPeriod_);
 
         // Calculate ATR for stop placement
-        float atr = computeATR(history, 14);
-        float current = closes.back();
+        double atr = computeATR(history, 14);
+        double current = closes.back();
 
         // Check for MA crossover
         bool bullishCross = (prevFastMA <= prevSlowMA) && (fastMA > slowMA);
@@ -83,26 +83,26 @@ public:
         bool inDowntrend = fastMA < slowMA;
 
         // Additional MACD confirmation if enabled
-        float macdStrength = 0.0f;
+        double macdStrength = 0.0;
         if (useMACD_) {
             auto macd = computeMACD(closes);
-            float macdLine = macd.first;
-            float signalLine = macd.second;
-            float histogram = macdLine - signalLine;
+            double macdLine = macd.first;
+            double signalLine = macd.second;
+            double histogram = macdLine - signalLine;
             macdStrength = std::tanh(histogram / atr);  // Normalize
         }
 
         // BUY: Bullish crossover with strong trend
         if (bullishCross && adx.adx >= adxThreshold_) {
-            float strength = std::min(1.0f, (adx.adx - adxThreshold_) / 25.0f + 0.5f);
+            double strength = std::min(1.0, (adx.adx - adxThreshold_) / 25.0 + 0.5);
 
             // Boost if +DI > -DI (bullish momentum)
             if (adx.plusDI > adx.minusDI) {
-                strength = std::min(1.0f, strength + 0.2f);
+                strength = std::min(1.0, strength + 0.2);
             }
 
             if (useMACD_ && macdStrength > 0) {
-                strength = std::min(1.0f, strength + macdStrength * 0.2f);
+                strength = std::min(1.0, strength + macdStrength * 0.2);
             }
 
             StrategySignal sig = StrategySignal::buy(strength,
@@ -118,14 +118,14 @@ public:
 
         // SELL: Bearish crossover with strong trend
         if (bearishCross && adx.adx >= adxThreshold_) {
-            float strength = std::min(1.0f, (adx.adx - adxThreshold_) / 25.0f + 0.5f);
+            double strength = std::min(1.0, (adx.adx - adxThreshold_) / 25.0 + 0.5);
 
             if (adx.minusDI > adx.plusDI) {
-                strength = std::min(1.0f, strength + 0.2f);
+                strength = std::min(1.0, strength + 0.2);
             }
 
             if (useMACD_ && macdStrength < 0) {
-                strength = std::min(1.0f, strength + std::abs(macdStrength) * 0.2f);
+                strength = std::min(1.0, strength + std::abs(macdStrength) * 0.2);
             }
 
             StrategySignal sig = StrategySignal::sell(strength,
@@ -140,12 +140,12 @@ public:
         }
 
         // Exit existing positions if trend weakens significantly
-        if (adx.adx < adxThreshold_ * 0.7f) {
+        if (adx.adx < adxThreshold_ * 0.7) {
             if (inUptrend) {
                 // Weak uptrend, consider taking profits
-                return StrategySignal::sell(0.3f, "Trend weakening, ADX: " + std::to_string((int)adx.adx));
+                return StrategySignal::sell(0.3, "Trend weakening, ADX: " + std::to_string((int)adx.adx));
             } else if (inDowntrend) {
-                return StrategySignal::buy(0.3f, "Trend weakening, ADX: " + std::to_string((int)adx.adx));
+                return StrategySignal::buy(0.3, "Trend weakening, ADX: " + std::to_string((int)adx.adx));
             }
         }
 
@@ -177,12 +177,12 @@ public:
         fastMAPeriod_ = fast;
         slowMAPeriod_ = slow;
     }
-    void setADXParams(int period, float threshold) {
+    void setADXParams(int period, double threshold) {
         adxPeriod_ = period;
         adxThreshold_ = threshold;
     }
     void setUseMACD(bool use) { useMACD_ = use; }
-    void setATRStopMultiplier(float mult) { atrMultiplierForStop_ = mult; }
+    void setATRStopMultiplier(double mult) { atrMultiplierForStop_ = mult; }
 };
 
 // Triple Moving Average Strategy (more conservative)
@@ -192,11 +192,11 @@ private:
     int mediumPeriod_ = 20;
     int slowPeriod_ = 50;
     int adxPeriod_ = 14;
-    float adxThreshold_ = 20.0f;
+    double adxThreshold_ = 20.0;
 
-    float computeSMA(const std::vector<float>& prices, int period, int endIdx) const {
-        if (endIdx < period - 1) return 0.0f;
-        float sum = 0.0f;
+    double computeSMA(const std::vector<double>& prices, int period, int endIdx) const {
+        if (endIdx < period - 1) return 0.0;
+        double sum = 0.0;
         for (int i = endIdx - period + 1; i <= endIdx; ++i) {
             sum += prices[i];
         }
@@ -206,9 +206,9 @@ private:
 public:
     TripleMAStrategy()
         : StrategyBase("TripleMA", 80) {
-        addParam("fastPeriod", 5.0f, 3.0f, 10.0f, 1.0f);
-        addParam("mediumPeriod", 20.0f, 10.0f, 30.0f, 5.0f);
-        addParam("slowPeriod", 50.0f, 40.0f, 100.0f, 10.0f);
+        addParam("fastPeriod", 5.0, 3.0, 10.0, 1.0);
+        addParam("mediumPeriod", 20.0, 10.0, 30.0, 5.0);
+        addParam("slowPeriod", 50.0, 40.0, 100.0, 10.0);
     }
 
     StrategySignal generateSignal(const std::vector<Candle>& history, size_t idx) override {
@@ -216,18 +216,18 @@ public:
             return StrategySignal::hold("Insufficient data");
         }
 
-        std::vector<float> closes;
+        std::vector<double> closes;
         for (const auto& c : history) closes.push_back(c.close);
 
         int lastIdx = (int)closes.size() - 1;
 
-        float fastMA = computeSMA(closes, fastPeriod_, lastIdx);
-        float mediumMA = computeSMA(closes, mediumPeriod_, lastIdx);
-        float slowMA = computeSMA(closes, slowPeriod_, lastIdx);
+        double fastMA = computeSMA(closes, fastPeriod_, lastIdx);
+        double mediumMA = computeSMA(closes, mediumPeriod_, lastIdx);
+        double slowMA = computeSMA(closes, slowPeriod_, lastIdx);
 
         ADXResult adx = computeADX(history, adxPeriod_);
-        float atr = computeATR(history, 14);
-        float current = closes.back();
+        double atr = computeATR(history, 14);
+        double current = closes.back();
 
         // Strong uptrend: fast > medium > slow
         bool strongUptrend = (fastMA > mediumMA) && (mediumMA > slowMA);
@@ -236,18 +236,18 @@ public:
 
         // Check for alignment
         if (strongUptrend && adx.adx >= adxThreshold_) {
-            float strength = std::min(1.0f, adx.adx / 50.0f);
+            double strength = std::min(1.0, adx.adx / 50.0);
             StrategySignal sig = StrategySignal::buy(strength,
                 "Triple MA aligned bullish, ADX: " + std::to_string((int)adx.adx));
-            sig.stopLossPrice = current - (atr * 2.5f);
+            sig.stopLossPrice = current - (atr * 2.5);
             return sig;
         }
 
         if (strongDowntrend && adx.adx >= adxThreshold_) {
-            float strength = std::min(1.0f, adx.adx / 50.0f);
+            double strength = std::min(1.0, adx.adx / 50.0);
             StrategySignal sig = StrategySignal::sell(strength,
                 "Triple MA aligned bearish, ADX: " + std::to_string((int)adx.adx));
-            sig.stopLossPrice = current + (atr * 2.5f);
+            sig.stopLossPrice = current + (atr * 2.5);
             return sig;
         }
 

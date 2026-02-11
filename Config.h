@@ -3,6 +3,7 @@
 #include <map>
 #include <mutex>
 #include <cstdlib>
+#include <iostream>
 #include <stdexcept>
 #include "Result.h"
 
@@ -164,6 +165,44 @@ public:
     // Get data directory
     std::string getDataDir() const {
         return get("DATA_DIR", ".");
+    }
+
+    // Get string from environment or config
+    std::string getString(const std::string& key, const std::string& defaultValue = "") const {
+        // First check environment
+        char* val = std::getenv(key.c_str());
+        if (val) return std::string(val);
+        // Then check config
+        return get(key, defaultValue);
+    }
+
+    // Get int from environment or config
+    int getInt(const std::string& key, int defaultValue = 0) const {
+        std::string val = getString(key);
+        if (val.empty()) return defaultValue;
+        try {
+            return std::stoi(val);
+        } catch (...) {
+            return defaultValue;
+        }
+    }
+
+    // Get bool from environment or config
+    bool getBool(const std::string& key, bool defaultValue = false) const {
+        std::string val = getString(key);
+        if (val.empty()) return defaultValue;
+        return val == "true" || val == "1" || val == "yes" || val == "TRUE";
+    }
+
+    // Get double from environment or config
+    double getDouble(const std::string& key, double defaultValue = 0.0) const {
+        std::string val = getString(key);
+        if (val.empty()) return defaultValue;
+        try {
+            return std::stod(val);
+        } catch (...) {
+            return defaultValue;
+        }
     }
 
     // Print configuration (masked API keys)

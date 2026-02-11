@@ -8,8 +8,8 @@ struct llama_model;
 struct llama_context;
 
 struct SentimentResult {
-    float score;      // -1.0 (Strong Neg) to 1.0 (Strong Pos)
-    float confidence; // 0-100%
+    double score;      // -1.0 (Strong Neg) to 1.0 (Strong Pos)
+    double confidence; // 0-100%
     std::string label; // "Strong Positive", "Positive", "Neutral", "Negative", "Strong Negative"
 };
 
@@ -22,7 +22,7 @@ public:
     
     // Batch analysis using parallel threads
     // Returns average score
-    float analyze(const std::vector<std::string>& texts);
+    double analyze(const std::vector<std::string>& texts);
     
     // Single analysis (exposed if needed)
     SentimentResult analyzeSingle(const std::string& text);
@@ -43,4 +43,3 @@ private:
     bool llamaReady = false; // True if local model is loaded and ready
     std::mutex mutex;
 };
-

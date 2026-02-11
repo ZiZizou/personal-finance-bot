@@ -10,16 +10,16 @@
 static int simulateDecision(const std::vector<Candle>& history) {
     if (history.size() < 50) return 0;
 
-    std::vector<float> closes;
+    std::vector<double> closes;
     for (const auto& c : history) closes.push_back(c.close);
 
-    BollingerBands bb = computeBollingerBands(closes, 20, 2.0f);
-    float rsi = computeRSI(closes, 14);
-    float current = closes.back();
+    BollingerBands bb = computeBollingerBands(closes, 20, 2.0);
+    double rsi = computeRSI(closes, 14);
+    double current = closes.back();
 
     // Mean Reversion Strategy
-    if (rsi < 30.0f || current < bb.lower) return 1;   // Buy
-    if (rsi > 70.0f || current > bb.upper) return -1;  // Sell
+    if (rsi < 30.0 || current < bb.lower) return 1;   // Buy
+    if (rsi > 70.0 || current > bb.upper) return -1;  // Sell
 
     return 0;  // Hold
 }
@@ -32,65 +32,65 @@ BacktestResult Backtester::run(const std::vector<Candle>& candles) {
     BacktestResult res;
     if (candles.size() < 100) return res;
 
-    float cash = 10000.0f;
-    float holdings = 0.0f;
-    float initialBalance = cash;
-    float entryPrice = 0.0f;
+    double cash = 10000.0;
+    double holdings = 0.0;
+    double initialBalance = cash;
+    double entryPrice = 0.0;
 
-    std::vector<float> dailyBalances;
-    float peakBalance = initialBalance;
+    std::vector<double> dailyBalances;
+    double peakBalance = initialBalance;
 
     for (size_t i = 60; i < candles.size(); ++i) {
         std::vector<Candle> history(candles.begin(), candles.begin() + i + 1);
-        float price = candles[i].close;
+        double price = candles[i].close;
 
         int action = simulateDecision(history);
 
         if (action == 1 && cash > 0) {
             holdings = cash / price;
-            cash = 0;
+            cash = 0.0;
             entryPrice = price;
             res.trades++;
         } else if (action == -1 && holdings > 0) {
-            float proceeds = holdings * price;
+            double proceeds = holdings * price;
             if (price > entryPrice) res.wins++;
             cash = proceeds;
             holdings = 0;
             res.trades++;
         }
 
-        float currentBalance = cash + (holdings * price);
+        double currentBalance = cash + (holdings * price);
         dailyBalances.push_back(currentBalance);
 
         if (currentBalance > peakBalance) peakBalance = currentBalance;
-        float drawdown = (peakBalance - currentBalance) / peakBalance;
+        double drawdown = (peakBalance - currentBalance) / peakBalance;
         if (drawdown > res.maxDrawdown) res.maxDrawdown = drawdown;
     }
 
-    float finalBalance = cash + (holdings * candles.back().close);
+    double finalBalance = cash + (holdings * candles.back().close);
     res.totalReturn = (finalBalance - initialBalance) / initialBalance;
 
     // Compute Sharpe (using sample std dev)
     if (dailyBalances.size() > 1) {
-        std::vector<float> returns;
+        std::vector<double> returns;
         for (size_t i = 1; i < dailyBalances.size(); ++i) {
             if (dailyBalances[i - 1] > 0)
                 returns.push_back((dailyBalances[i] - dailyBalances[i - 1]) / dailyBalances[i - 1]);
         }
 
         if (!returns.empty()) {
-            float meanRet = std::accumulate(returns.begin(), returns.end(), 0.0f) / returns.size();
-            float sqSum = 0.0f;
-            for (float r : returns) sqSum += (r - meanRet) * (r - meanRet);
-            float stdDev = std::sqrt(sqSum / (returns.size() - 1));  // Sample std dev
+            double meanRet = std::accumulate(returns.begin(), returns.end(), 0.0) / returns.size();
+            double sqSum = 0.0;
+            for (double r : returns) sqSum += (r - meanRet) * (r - meanRet);
+            double stdDev = std::sqrt(sqSum / (returns.size() - 1));  // Sample std dev
 
             if (stdDev > 1e-9)
-                res.sharpeRatio = (meanRet / stdDev) * std::sqrt(252.0f);
+                res.sharpeRatio = (meanRet / stdDev) * std::sqrt(252.0);
         }
     }
 
     // Calculate win rate for compatibility
-    res.winRate = res.trades > 0 ? (float)res.wins / res.trades : 0.0f;
+    res.winRate = res.trades > 0 ? (double)res.wins / res.trades : 0.0;
 
     return res;
 }
@@ -131,7 +131,7 @@ BacktestResult Backtester::run(const std::vector<Candle>& candles, SignalFunctio
     // Main backtest loop
     for (size_t i = warmupPeriod; i < candles.size(); ++i) {
         const Candle& candle = candles[i];
-        float prevEquity = equity;
+        double prevEquity = equity;
 
         // Update trailing stop if enabled and position is open
         if (position.isOpen && config_.risk.enableTrailingStop) {
@@ -139,7 +139,7 @@ BacktestResult Backtester::run(const std::vector<Candle>& candles, SignalFunctio
         }
 
         // Check stop-loss
-        float stopExitPrice = 0.0f;
+        double stopExitPrice = 0.0;
         if (position.isOpen && config_.risk.enableStopLoss) {
             if (checkStopLoss(position, candle, stopExitPrice)) {
                 TradeRecord trade = closePosition(position, candle, i, "stop_loss");
@@ -174,7 +174,7 @@ BacktestResult Backtester::run(const std::vector<Candle>& candles, SignalFunctio
         }
 
         // Check take-profit
-        float tpExitPrice = 0.0f;
+        double tpExitPrice = 0.0;
         if (position.isOpen && config_.risk.enableTakeProfit) {
             if (checkTakeProfit(position, candle, tpExitPrice)) {
                 TradeRecord trade = closePosition(position, candle, i, "take_profit");
@@ -380,14 +380,14 @@ BacktestResult Backtester::run(const std::vector<Candle>& candles, SignalFunctio
 
 // === POSITION MANAGEMENT ===
 void Backtester::openPosition(Position& pos, const Candle& candle, size_t idx,
-                              float capitalAvailable, const StrategySignal& signal, bool isLong) {
+                              double capitalAvailable, const StrategySignal& signal, bool isLong) {
     pos.isOpen = true;
     pos.isLong = isLong;
     pos.entryIndex = idx;
     pos.entryDate = candle.date;
 
     // Apply slippage to entry price
-    float rawPrice = candle.close;
+    double rawPrice = candle.close;
     pos.entryPrice = config_.costs.applySlippage(rawPrice, isLong);
     pos.entrySlippage = std::abs(pos.entryPrice - rawPrice);
 
@@ -471,7 +471,7 @@ TradeRecord Backtester::closePosition(Position& pos, const Candle& candle, size_
     return trade;
 }
 
-bool Backtester::checkStopLoss(const Position& pos, const Candle& candle, float& exitPrice) const {
+bool Backtester::checkStopLoss(const Position& pos, const Candle& candle, double& exitPrice) const {
     if (pos.stopLossPrice <= 0) return false;
 
     if (pos.isLong) {
@@ -488,7 +488,7 @@ bool Backtester::checkStopLoss(const Position& pos, const Candle& candle, float&
     return false;
 }
 
-bool Backtester::checkTakeProfit(const Position& pos, const Candle& candle, float& exitPrice) const {
+bool Backtester::checkTakeProfit(const Position& pos, const Candle& candle, double& exitPrice) const {
     if (pos.takeProfitPrice <= 0) return false;
 
     if (pos.isLong) {
@@ -529,7 +529,7 @@ void Backtester::updateTrailingStop(Position& pos, const Candle& candle) {
 }
 
 // === METRIC CALCULATIONS ===
-void Backtester::calculateMetrics(BacktestResult& result, const std::vector<float>& dailyReturns,
+void Backtester::calculateMetrics(BacktestResult& result, const std::vector<double>& dailyReturns,
                                    int totalBars) const {
     if (dailyReturns.empty()) return;
 
@@ -540,9 +540,9 @@ void Backtester::calculateMetrics(BacktestResult& result, const std::vector<floa
     result.sortinoRatio = calculateSortinoRatio(dailyReturns);
 
     // Annualized Return (CAGR)
-    float years = (float)totalBars / config_.tradingDaysPerYear;
-    if (years > 0 && result.totalReturn > -1.0f) {
-        result.annualizedReturn = std::pow(1.0f + result.totalReturn, 1.0f / years) - 1.0f;
+    double years = (double)totalBars / config_.tradingDaysPerYear;
+    if (years > 0 && result.totalReturn > -1.0) {
+        result.annualizedReturn = std::pow(1.0 + result.totalReturn, 1.0 / years) - 1.0;
     }
 
     // Calmar Ratio
@@ -551,21 +551,21 @@ void Backtester::calculateMetrics(BacktestResult& result, const std::vector<floa
     }
 
     // Volatility
-    float meanRet = std::accumulate(dailyReturns.begin(), dailyReturns.end(), 0.0f) / dailyReturns.size();
-    float variance = 0.0f;
-    for (float r : dailyReturns) {
+    double meanRet = std::accumulate(dailyReturns.begin(), dailyReturns.end(), 0.0) / dailyReturns.size();
+    double variance = 0.0;
+    for (double r : dailyReturns) {
         variance += (r - meanRet) * (r - meanRet);
     }
     if (dailyReturns.size() > 1) {
         variance /= (dailyReturns.size() - 1);
     }
-    result.volatility = std::sqrt(variance) * std::sqrt((float)config_.tradingDaysPerYear);
+    result.volatility = std::sqrt(variance) * std::sqrt((double)config_.tradingDaysPerYear);
 
     // Downside deviation
-    float sumDownside = 0.0f;
+    double sumDownside = 0.0;
     int countDownside = 0;
-    float dailyRiskFree = config_.riskFreeRate / config_.tradingDaysPerYear;
-    for (float r : dailyReturns) {
+    double dailyRiskFree = config_.riskFreeRate / config_.tradingDaysPerYear;
+    for (double r : dailyReturns) {
         if (r < dailyRiskFree) {
             sumDownside += (r - dailyRiskFree) * (r - dailyRiskFree);
             countDownside++;
@@ -573,12 +573,12 @@ void Backtester::calculateMetrics(BacktestResult& result, const std::vector<floa
     }
     if (countDownside > 1) {
         result.downsideDeviation = std::sqrt(sumDownside / (countDownside - 1)) *
-                                   std::sqrt((float)config_.tradingDaysPerYear);
+                                   std::sqrt((double)config_.tradingDaysPerYear);
     }
 
     // VaR and CVaR
-    result.valueAtRisk95 = calculateVaR(dailyReturns, 0.95f);
-    result.cvar95 = calculateCVaR(dailyReturns, 0.95f);
+    result.valueAtRisk95 = calculateVaR(dailyReturns, 0.95);
+    result.cvar95 = calculateCVaR(dailyReturns, 0.95);
 
     // Cost impact (compare return with vs without costs)
     if (result.totalCosts > 0 && config_.initialCapital > 0) {
@@ -586,55 +586,55 @@ void Backtester::calculateMetrics(BacktestResult& result, const std::vector<floa
     }
 }
 
-float Backtester::calculateSharpeRatio(const std::vector<float>& returns) const {
-    if (returns.size() < 2) return 0.0f;
+double Backtester::calculateSharpeRatio(const std::vector<double>& returns) const {
+    if (returns.size() < 2) return 0.0;
 
-    float dailyRiskFree = config_.riskFreeRate / config_.tradingDaysPerYear;
-    float meanRet = std::accumulate(returns.begin(), returns.end(), 0.0f) / returns.size();
-    float excessReturn = meanRet - dailyRiskFree;
+    double dailyRiskFree = config_.riskFreeRate / config_.tradingDaysPerYear;
+    double meanRet = std::accumulate(returns.begin(), returns.end(), 0.0) / returns.size();
+    double excessReturn = meanRet - dailyRiskFree;
 
-    float variance = 0.0f;
-    for (float r : returns) {
+    double variance = 0.0;
+    for (double r : returns) {
         variance += (r - meanRet) * (r - meanRet);
     }
     variance /= (returns.size() - 1);  // Sample variance
 
-    float stdDev = std::sqrt(variance);
-    if (stdDev < 1e-9f) return 0.0f;
+    double stdDev = std::sqrt(variance);
+    if (stdDev < 1e-9) return 0.0;
 
-    return (excessReturn / stdDev) * std::sqrt((float)config_.tradingDaysPerYear);
+    return (excessReturn / stdDev) * std::sqrt((double)config_.tradingDaysPerYear);
 }
 
-float Backtester::calculateSortinoRatio(const std::vector<float>& returns) const {
-    if (returns.size() < 2) return 0.0f;
+double Backtester::calculateSortinoRatio(const std::vector<double>& returns) const {
+    if (returns.size() < 2) return 0.0;
 
-    float dailyRiskFree = config_.riskFreeRate / config_.tradingDaysPerYear;
-    float meanRet = std::accumulate(returns.begin(), returns.end(), 0.0f) / returns.size();
-    float excessReturn = meanRet - dailyRiskFree;
+    double dailyRiskFree = config_.riskFreeRate / config_.tradingDaysPerYear;
+    double meanRet = std::accumulate(returns.begin(), returns.end(), 0.0) / returns.size();
+    double excessReturn = meanRet - dailyRiskFree;
 
     // Downside deviation (only negative returns)
-    float sumSquaredDownside = 0.0f;
+    double sumSquaredDownside = 0.0;
     int countDownside = 0;
-    for (float r : returns) {
+    for (double r : returns) {
         if (r < dailyRiskFree) {
             sumSquaredDownside += (r - dailyRiskFree) * (r - dailyRiskFree);
             countDownside++;
         }
     }
 
-    if (countDownside < 2) return 0.0f;
+    if (countDownside < 2) return 0.0;
 
-    float downsideStd = std::sqrt(sumSquaredDownside / (countDownside - 1));
-    if (downsideStd < 1e-9f) return 0.0f;
+    double downsideStd = std::sqrt(sumSquaredDownside / (countDownside - 1));
+    if (downsideStd < 1e-9) return 0.0;
 
-    return (excessReturn / downsideStd) * std::sqrt((float)config_.tradingDaysPerYear);
+    return (excessReturn / downsideStd) * std::sqrt((double)config_.tradingDaysPerYear);
 }
 
-float Backtester::calculateMaxDrawdown(const std::vector<float>& equityCurve, float& maxDuration) const {
-    if (equityCurve.empty()) return 0.0f;
+double Backtester::calculateMaxDrawdown(const std::vector<double>& equityCurve, double& maxDuration) const {
+    if (equityCurve.empty()) return 0.0;
 
-    float maxDD = 0.0f;
-    float peak = equityCurve[0];
+    double maxDD = 0.0;
+    double peak = equityCurve[0];
     maxDuration = 0;
     int drawdownStart = -1;
 
@@ -642,12 +642,12 @@ float Backtester::calculateMaxDrawdown(const std::vector<float>& equityCurve, fl
         if (equityCurve[i] > peak) {
             peak = equityCurve[i];
             if (drawdownStart >= 0) {
-                maxDuration = std::max(maxDuration, (float)(i - drawdownStart));
+                maxDuration = std::max(maxDuration, (double)(i - drawdownStart));
                 drawdownStart = -1;
             }
         }
 
-        float dd = (peak - equityCurve[i]) / peak;
+        double dd = (peak - equityCurve[i]) / peak;
         if (dd > maxDD) {
             maxDD = dd;
         }
@@ -660,24 +660,24 @@ float Backtester::calculateMaxDrawdown(const std::vector<float>& equityCurve, fl
     return maxDD;
 }
 
-float Backtester::calculateVaR(std::vector<float> returns, float confidence) const {
-    if (returns.empty()) return 0.0f;
+double Backtester::calculateVaR(std::vector<double> returns, double confidence) const {
+    if (returns.empty()) return 0.0;
 
     std::sort(returns.begin(), returns.end());
-    size_t index = (size_t)((1.0f - confidence) * returns.size());
+    size_t index = (size_t)((1.0 - confidence) * returns.size());
     if (index >= returns.size()) index = returns.size() - 1;
 
     return -returns[index];  // Return as positive number (loss)
 }
 
-float Backtester::calculateCVaR(std::vector<float> returns, float confidence) const {
-    if (returns.empty()) return 0.0f;
+double Backtester::calculateCVaR(std::vector<double> returns, double confidence) const {
+    if (returns.empty()) return 0.0;
 
     std::sort(returns.begin(), returns.end());
-    size_t cutoff = (size_t)((1.0f - confidence) * returns.size());
+    size_t cutoff = (size_t)((1.0 - confidence) * returns.size());
     if (cutoff == 0) cutoff = 1;
 
-    float sum = 0.0f;
+    double sum = 0.0;
     for (size_t i = 0; i < cutoff; ++i) {
         sum += returns[i];
     }

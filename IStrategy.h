@@ -14,10 +14,10 @@ enum class SignalType {
 // Comprehensive strategy signal with additional metadata
 struct StrategySignal {
     SignalType type = SignalType::Hold;
-    float strength = 0.0f;        // Signal strength: -1 (strong sell) to +1 (strong buy)
-    float stopLossPrice = 0.0f;   // Suggested stop-loss price (0 = not set)
-    float takeProfitPrice = 0.0f; // Suggested take-profit price (0 = not set)
-    float confidence = 0.5f;      // Confidence in signal (0 to 1)
+    double strength = 0.0;        // Signal strength: -1 (strong sell) to +1 (strong buy)
+    double stopLossPrice = 0.0;   // Suggested stop-loss price (0 = not set)
+    double takeProfitPrice = 0.0; // Suggested take-profit price (0 = not set)
+    double confidence = 0.5;      // Confidence in signal (0 to 1)
     std::string reason;           // Human-readable reason for the signal
 
     // Helper to check if signal is actionable
@@ -36,18 +36,18 @@ struct StrategySignal {
     }
 
     // Static factory methods
-    static StrategySignal buy(float strength = 1.0f, const std::string& reason = "") {
+    static StrategySignal buy(double strength = 1.0, const std::string& reason = "") {
         StrategySignal sig;
         sig.type = SignalType::Buy;
-        sig.strength = std::min(1.0f, std::max(0.0f, strength));
+        sig.strength = std::min(1.0, std::max(0.0, strength));
         sig.reason = reason;
         return sig;
     }
 
-    static StrategySignal sell(float strength = 1.0f, const std::string& reason = "") {
+    static StrategySignal sell(double strength = 1.0, const std::string& reason = "") {
         StrategySignal sig;
         sig.type = SignalType::Sell;
-        sig.strength = std::min(0.0f, std::max(-1.0f, -strength));
+        sig.strength = std::min(0.0, std::max(-1.0, -strength));
         sig.reason = reason;
         return sig;
     }
@@ -55,7 +55,7 @@ struct StrategySignal {
     static StrategySignal hold(const std::string& reason = "") {
         StrategySignal sig;
         sig.type = SignalType::Hold;
-        sig.strength = 0.0f;
+        sig.strength = 0.0;
         sig.reason = reason;
         return sig;
     }
@@ -64,12 +64,12 @@ struct StrategySignal {
 // Strategy parameters structure for optimization
 struct StrategyParams {
     std::string name;
-    float value;
-    float minValue;
-    float maxValue;
-    float step;
+    double value;
+    double minValue;
+    double maxValue;
+    double step;
 
-    StrategyParams(const std::string& n, float v, float minV, float maxV, float s)
+    StrategyParams(const std::string& n, double v, double minV, double maxV, double s)
         : name(n), value(v), minValue(minV), maxValue(maxV), step(s) {}
 };
 
@@ -106,7 +106,7 @@ public:
     }
 
     // Optional: Called when a trade is executed (for learning strategies)
-    virtual void onTradeExecuted(float entryPrice, float exitPrice, bool isWin) {
+    virtual void onTradeExecuted(double entryPrice, double exitPrice, bool isWin) {
         // Default: do nothing
         (void)entryPrice;
         (void)exitPrice;
@@ -152,15 +152,15 @@ protected:
     virtual void onParametersChanged() {}
 
     // Helper to get parameter value by name
-    float getParamValue(const std::string& name) const {
+    double getParamValue(const std::string& name) const {
         for (const auto& p : params_) {
             if (p.name == name) return p.value;
         }
-        return 0.0f;
+        return 0.0;
     }
 
     // Helper to add a parameter
-    void addParam(const std::string& name, float value, float minV, float maxV, float step) {
+    void addParam(const std::string& name, double value, double minV, double maxV, double step) {
         params_.emplace_back(name, value, minV, maxV, step);
     }
 };

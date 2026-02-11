@@ -63,18 +63,20 @@ std::vector<Candle> fetchCandles(const std::string& symbol, const std::string& t
                             if (closes[i].is_null()) continue;
 
                             Candle c;
-                            c.date = std::to_string(timestamps[i].get<long long>());
-                            c.close = closes[i].get<float>();
-                            c.open = !opens[i].is_null() ? opens[i].get<float>() : c.close;
-                            c.high = !highs[i].is_null() ? highs[i].get<float>() : c.close;
-                            c.low = !lows[i].is_null() ? lows[i].get<float>() : c.close;
-                            
+                            int64_t tsValue = timestamps[i].get<int64_t>();
+                            c.ts = TimeUtils::fromUnixSeconds(tsValue);
+                            c.date = std::to_string(tsValue);  // Keep for backward compatibility
+                            c.close = closes[i].get<double>();
+                            c.open = !opens[i].is_null() ? opens[i].get<double>() : c.close;
+                            c.high = !highs[i].is_null() ? highs[i].get<double>() : c.close;
+                            c.low = !lows[i].is_null() ? lows[i].get<double>() : c.close;
+
                             if (!volumes.empty() && i < volumes.size() && !volumes[i].is_null()) {
-                                c.volume = volumes[i].get<long long>();
+                                c.volume = volumes[i].get<int64_t>();
                             } else {
                                 c.volume = 0;
                             }
-                            
+
                             candles.push_back(c);
                         }
                     }
@@ -90,13 +92,13 @@ std::vector<Candle> fetchCandles(const std::string& symbol, const std::string& t
 }
 
 Fundamentals fetchFundamentals(const std::string& symbol, const std::string& type) {
-    Fundamentals fund = {0.0f, 0.0f, 0.0f, false};
+    Fundamentals fund = {0.0, 0.0, 0.0, false};
     std::string ySymbol = formatSymbol(symbol, type);
-    
+
     // Yahoo Quote API v7
     std::string url = "https://query1.finance.yahoo.com/v7/finance/quote?symbols=" + ySymbol;
     // std::cout << std::endl << "URL: " << url << std::endl;
-    
+
     std::string response = NetworkUtils::fetchData(url);
     if (response.empty()) return fund;
 
@@ -106,9 +108,9 @@ Fundamentals fetchFundamentals(const std::string& symbol, const std::string& typ
             auto result = data["quoteResponse"]["result"];
             if (!result.empty()) {
                 auto q = result[0];
-                fund.pe_ratio = q.value("trailingPE", 0.0f);
-                fund.market_cap = q.value("marketCap", 0.0f);
-                fund.fifty_day_avg = q.value("fiftyDayAverage", 0.0f);
+                fund.pe_ratio = q.value("trailingPE", 0.0);
+                fund.market_cap = q.value("marketCap", 0.0);
+                fund.fifty_day_avg = q.value("fiftyDayAverage", 0.0);
                 fund.valid = true;
             }
         }
@@ -117,7 +119,7 @@ Fundamentals fetchFundamentals(const std::string& symbol, const std::string& typ
 }
 
 OnChainData fetchOnChainData(const std::string& symbol) {
-    OnChainData data = {0.0f, 0.0f, false};
+    OnChainData data = {0.0, 0.0, false};
     
     // CoinAPI (Optional)
     std::string key = getCoinApiKey();
@@ -147,10 +149,10 @@ OnChainData fetchOnChainData(const std::string& symbol) {
                  data.valid = true;
                  // Mocking flow data based on volume trend if real API doesn't provide it freely
                  // Real implementation would parse "volume_1day_usd" etc.
-                 data.net_inflow = 0.0f; // Placeholder
+                 data.net_inflow = 0.0; // Placeholder
             }
         } catch (...) {}
     }
-    
+
     return data;
 }

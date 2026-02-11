@@ -12,15 +12,15 @@
 
 class MLPredictor {
 private:
-    std::vector<float> weights;
-    float bias;
-    float learningRate;
-    float regularization;  // L2 regularization strength
+    std::vector<double> weights;
+    double bias;
+    double learningRate;
+    double regularization;  // L2 regularization strength
 
     // Training statistics for validation
     int trainSamples_ = 0;
-    float runningMSE_ = 0.0f;
-    float bestMSE_ = 1e10f;
+    double runningMSE_ = 0.0;
+    double bestMSE_ = 1e10;
 
     // Features:
     // 0: RSI
@@ -36,7 +36,7 @@ private:
     static const int TOTAL_FEATURE_COUNT = BASE_FEATURE_COUNT + LAGGED_FEATURES + CROSS_FEATURES;
 
     // For tracking lagged returns
-    std::vector<float> returnHistory_;
+    std::vector<double> returnHistory_;
     static const size_t MAX_HISTORY = 20;
 
 public:
@@ -44,40 +44,40 @@ public:
 
     // Train on a single sample (online learning) with L2 regularization
     // target: Actual % change of price next day
-    void train(const std::vector<float>& features, float target);
+    void train(const std::vector<double>& features, double target);
 
     // Batch training with train/validation split
-    void trainBatch(const std::vector<std::vector<float>>& features,
-                   const std::vector<float>& targets,
-                   float validationSplit = 0.2f,
+    void trainBatch(const std::vector<std::vector<double>>& features,
+                   const std::vector<double>& targets,
+                   double validationSplit = 0.2,
                    int epochs = 100);
 
     // Predict next % change
-    float predict(const std::vector<float>& features) const;
+    double predict(const std::vector<double>& features) const;
 
     // Helper to extract features from raw data
     // Normalize inputs to -1..1 or 0..1 range roughly
-    std::vector<float> extractFeatures(float rsi, float macdHist, float sentiment,
-                                       float garchVol, int cyclePeriod, int dayIndex);
+    std::vector<double> extractFeatures(double rsi, double macdHist, double sentiment,
+                                       double garchVol, int cyclePeriod, int dayIndex);
 
     // Add return to history for lagged features
-    void addReturn(float dailyReturn);
+    void addReturn(double dailyReturn);
 
     // Get/set hyperparameters
-    float getLearningRate() const { return learningRate; }
-    void setLearningRate(float lr) { learningRate = lr; }
-    float getRegularization() const { return regularization; }
-    void setRegularization(float reg) { regularization = reg; }
+    double getLearningRate() const { return learningRate; }
+    void setLearningRate(double lr) { learningRate = lr; }
+    double getRegularization() const { return regularization; }
+    void setRegularization(double reg) { regularization = reg; }
 
     // Get training statistics
     int getTrainSamples() const { return trainSamples_; }
-    float getRunningMSE() const { return trainSamples_ > 0 ? runningMSE_ / trainSamples_ : 0.0f; }
+    double getRunningMSE() const { return trainSamples_ > 0 ? runningMSE_ / trainSamples_ : 0.0; }
 
     // Reset model
     void reset();
 
     // Get feature importance (absolute weight values)
-    std::vector<std::pair<int, float>> getFeatureImportance() const;
+    std::vector<std::pair<int, double>> getFeatureImportance() const;
 };
 
 // Simple 2-layer Neural Network for more complex patterns
@@ -88,60 +88,60 @@ private:
     int hiddenSize_;
 
     // Weights and biases
-    std::vector<std::vector<float>> weightsInput_;   // inputSize x hiddenSize
-    std::vector<float> biasHidden_;                   // hiddenSize
-    std::vector<float> weightsOutput_;                // hiddenSize
-    float biasOutput_;
+    std::vector<std::vector<double>> weightsInput_;   // inputSize x hiddenSize
+    std::vector<double> biasHidden_;                   // hiddenSize
+    std::vector<double> weightsOutput_;                // hiddenSize
+    double biasOutput_;
 
     // Hidden layer activations (stored for backprop)
-    std::vector<float> hiddenActivations_;
+    std::vector<double> hiddenActivations_;
 
     // Hyperparameters
-    float learningRate_ = 0.01f;
-    float regularization_ = 0.001f;
-    float momentum_ = 0.9f;
+    double learningRate_ = 0.01;
+    double regularization_ = 0.001;
+    double momentum_ = 0.9;
 
     // Momentum terms
-    std::vector<std::vector<float>> velocityInput_;
-    std::vector<float> velocityHidden_;
-    std::vector<float> velocityOutput_;
-    float velocityBiasOutput_ = 0.0f;
+    std::vector<std::vector<double>> velocityInput_;
+    std::vector<double> velocityHidden_;
+    std::vector<double> velocityOutput_;
+    double velocityBiasOutput_ = 0.0;
 
     // Training stats
     int trainSamples_ = 0;
-    float runningMSE_ = 0.0f;
+    double runningMSE_ = 0.0;
 
 public:
     NeuralNetPredictor(int inputSize = 15, int hiddenSize = 8);
 
     // Forward pass
-    float predict(const std::vector<float>& features);
+    double predict(const std::vector<double>& features);
 
     // Train on single sample
-    void train(const std::vector<float>& features, float target);
+    void train(const std::vector<double>& features, double target);
 
     // Batch training
-    void trainBatch(const std::vector<std::vector<float>>& features,
-                   const std::vector<float>& targets,
+    void trainBatch(const std::vector<std::vector<double>>& features,
+                   const std::vector<double>& targets,
                    int epochs = 100,
-                   float validationSplit = 0.2f);
+                   double validationSplit = 0.2);
 
     // Reset weights
     void reset();
 
-    void setLearningRate(float lr) { learningRate_ = lr; }
-    void setRegularization(float reg) { regularization_ = reg; }
-    void setMomentum(float mom) { momentum_ = mom; }
+    void setLearningRate(double lr) { learningRate_ = lr; }
+    void setRegularization(double reg) { regularization_ = reg; }
+    void setMomentum(double mom) { momentum_ = mom; }
 
 private:
     // Activation function (tanh for hidden, linear for output)
-    float tanh_activation(float x) const {
+    double tanh_activation(double x) const {
         return std::tanh(x);
     }
 
-    float tanh_derivative(float x) const {
-        float t = std::tanh(x);
-        return 1.0f - t * t;
+    double tanh_derivative(double x) const {
+        double t = std::tanh(x);
+        return 1.0 - t * t;
     }
 
     void initializeWeights();
@@ -150,40 +150,40 @@ private:
 // Ridge Regression (Linear regression with L2 regularization) - Closed form solution
 class RidgeRegression {
 private:
-    std::vector<float> weights_;
-    float bias_ = 0.0f;
-    float lambda_ = 0.1f;  // Regularization parameter
+    std::vector<double> weights_;
+    double bias_ = 0.0;
+    double lambda_ = 0.1;  // Regularization parameter
     bool isFitted_ = false;
 
 public:
-    RidgeRegression(float lambda = 0.1f) : lambda_(lambda) {}
+    RidgeRegression(double lambda = 0.1) : lambda_(lambda) {}
 
     // Fit using normal equation with regularization
     // (X'X + lambda*I)^-1 * X'y
-    void fit(const std::vector<std::vector<float>>& X,
-            const std::vector<float>& y);
+    void fit(const std::vector<std::vector<double>>& X,
+            const std::vector<double>& y);
 
-    float predict(const std::vector<float>& x) const;
+    double predict(const std::vector<double>& x) const;
 
-    std::vector<float> predictBatch(const std::vector<std::vector<float>>& X) const;
+    std::vector<double> predictBatch(const std::vector<std::vector<double>>& X) const;
 
-    void setLambda(float lambda) { lambda_ = lambda; }
-    float getLambda() const { return lambda_; }
+    void setLambda(double lambda) { lambda_ = lambda; }
+    double getLambda() const { return lambda_; }
 
-    const std::vector<float>& getWeights() const { return weights_; }
-    float getBias() const { return bias_; }
+    const std::vector<double>& getWeights() const { return weights_; }
+    double getBias() const { return bias_; }
 
 private:
     // Simple matrix operations (for small dimensions)
-    std::vector<std::vector<float>> matMul(
-        const std::vector<std::vector<float>>& A,
-        const std::vector<std::vector<float>>& B) const;
+    std::vector<std::vector<double>> matMul(
+        const std::vector<std::vector<double>>& A,
+        const std::vector<std::vector<double>>& B) const;
 
-    std::vector<std::vector<float>> transpose(
-        const std::vector<std::vector<float>>& A) const;
+    std::vector<std::vector<double>> transpose(
+        const std::vector<std::vector<double>>& A) const;
 
-    std::vector<std::vector<float>> inverse(
-        std::vector<std::vector<float>> A) const;
+    std::vector<std::vector<double>> inverse(
+        std::vector<std::vector<double>> A) const;
 };
 
 // Ensemble predictor combining multiple models
@@ -193,32 +193,32 @@ private:
     NeuralNetPredictor neuralModel_;
     RidgeRegression ridgeModel_;
 
-    float linearWeight_ = 0.4f;
-    float neuralWeight_ = 0.3f;
-    float ridgeWeight_ = 0.3f;
+    double linearWeight_ = 0.4;
+    double neuralWeight_ = 0.3;
+    double ridgeWeight_ = 0.3;
 
-    std::vector<std::vector<float>> trainingFeatures_;
-    std::vector<float> trainingTargets_;
+    std::vector<std::vector<double>> trainingFeatures_;
+    std::vector<double> trainingTargets_;
 
 public:
     EnsemblePredictor();
 
     // Add training sample
-    void addSample(const std::vector<float>& features, float target);
+    void addSample(const std::vector<double>& features, double target);
 
     // Train all models
     void train(int epochs = 100);
 
     // Predict using weighted ensemble
-    float predict(const std::vector<float>& features);
+    double predict(const std::vector<double>& features);
 
     // Extract features using linear model's method
-    std::vector<float> extractFeatures(float rsi, float macdHist, float sentiment,
-                                       float garchVol, int cyclePeriod, int dayIndex) {
+    std::vector<double> extractFeatures(double rsi, double macdHist, double sentiment,
+                                       double garchVol, int cyclePeriod, int dayIndex) {
         return linearModel_.extractFeatures(rsi, macdHist, sentiment, garchVol, cyclePeriod, dayIndex);
     }
 
-    void setWeights(float linear, float neural, float ridge) {
+    void setWeights(double linear, double neural, double ridge) {
         linearWeight_ = linear;
         neuralWeight_ = neural;
         ridgeWeight_ = ridge;

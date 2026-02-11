@@ -4,27 +4,28 @@
 #include "../TechnicalAnalysis.h"
 #include <cmath>
 #include <memory>
+#include <algorithm>
 
 // Machine Learning based Strategy
 // Wraps the MLPredictor for use with the backtester
 class MLStrategy : public StrategyBase {
 private:
     MLPredictor& predictor_;
-    float buyThreshold_ = 0.005f;     // 0.5% predicted return to buy
-    float sellThreshold_ = -0.005f;   // -0.5% predicted return to sell
-    float confidenceThreshold_ = 0.3f;
+    double buyThreshold_ = 0.005;     // 0.5% predicted return to buy
+    double sellThreshold_ = -0.005;   // -0.5% predicted return to sell
+    double confidenceThreshold_ = 0.3;
     int cyclePeriod_ = 30;
     bool trainOnline_ = false;
-    float lastPrediction_ = 0.0f;
-    float lastActualReturn_ = 0.0f;
+    double lastPrediction_ = 0.0;
+    double lastActualReturn_ = 0.0;
     size_t lastTrainIdx_ = 0;
 
 public:
     MLStrategy(MLPredictor& predictor)
         : StrategyBase("MLStrategy", 60), predictor_(predictor) {
-        addParam("buyThreshold", 0.005f, 0.001f, 0.02f, 0.001f);
-        addParam("sellThreshold", -0.005f, -0.02f, -0.001f, 0.001f);
-        addParam("confidenceThreshold", 0.3f, 0.1f, 0.8f, 0.1f);
+        addParam("buyThreshold", 0.005, 0.001, 0.02, 0.001);
+        addParam("sellThreshold", -0.005, -0.02, -0.001, 0.001);
+        addParam("confidenceThreshold", 0.3, 0.1, 0.8, 0.1);
     }
 
     StrategySignal generateSignal(const std::vector<Candle>& history, size_t idx) override {
@@ -33,37 +34,38 @@ public:
         }
 
         // Extract features
-        std::vector<float> closes;
+        std::vector<double> closes;
         for (const auto& c : history) closes.push_back(c.close);
 
-        float rsi = computeRSI(closes, 14);
+        double rsi = computeRSI(closes, 14);
         auto macd = computeMACD(closes);
-        float macdHist = macd.first - macd.second;
+        double macdHist = macd.first - macd.second;
 
         // Calculate log returns for GARCH
-        std::vector<float> returns;
+        std::vector<double> returns;
         for (size_t i = 1; i < closes.size(); ++i) {
-            returns.push_back(std::log(closes[i] / closes[i-1]));
+            if (closes[i-1] > 0)
+                returns.push_back(std::log(closes[i] / closes[i-1]));
         }
-        float garchVol = computeGARCHVolatility(returns);
+        double garchVol = computeGARCHVolatility(returns);
 
         // Detect cycle
         int detectedCycle = detectCycle(closes);
         if (detectedCycle > 0) cyclePeriod_ = detectedCycle;
 
         // Use external sentiment (default to neutral if not available)
-        float sentiment = 0.0f;
+        double sentiment = 0.0;
 
         // Extract features using predictor's method
-        std::vector<float> features = predictor_.extractFeatures(
+        std::vector<double> features = predictor_.extractFeatures(
             rsi, macdHist, sentiment, garchVol, cyclePeriod_, (int)idx);
 
         // Get prediction
-        float prediction = predictor_.predict(features);
+        double prediction = predictor_.predict(features);
 
         // Online training: train on previous prediction if available
         if (trainOnline_ && idx > lastTrainIdx_ + 1) {
-            float actualReturn = (closes.back() - closes[closes.size() - 2]) / closes[closes.size() - 2];
+            double actualReturn = (closes.back() - closes[closes.size() - 2]) / closes[closes.size() - 2];
             predictor_.train(features, actualReturn);
             lastActualReturn_ = actualReturn;
         }
@@ -71,42 +73,42 @@ public:
         lastPrediction_ = prediction;
 
         // Calculate confidence based on prediction magnitude and technical alignment
-        float confidence = std::abs(prediction) / 0.02f;  // Normalize to ~1 at 2% prediction
-        confidence = std::min(1.0f, confidence);
+        double confidence = std::abs(prediction) / 0.02;  // Normalize to ~1 at 2% prediction
+        confidence = std::min(1.0, confidence);
 
         // Generate signal based on prediction
         if (prediction > buyThreshold_ && confidence >= confidenceThreshold_) {
-            float strength = std::min(1.0f, prediction / 0.02f);
+            double strength = std::min(1.0, prediction / 0.02);
 
             // Boost confidence if technicals agree
-            if (rsi < 40.0f) {
-                confidence = std::min(1.0f, confidence + 0.1f);
+            if (rsi < 40.0) {
+                confidence = std::min(1.0, confidence + 0.1);
             }
 
             StrategySignal sig = StrategySignal::buy(strength,
                 "ML Prediction: " + std::to_string(prediction * 100) + "% expected return");
 
-            float atr = computeATR(history, 14);
-            sig.stopLossPrice = closes.back() - (atr * 2.0f);
-            sig.takeProfitPrice = closes.back() * (1.0f + prediction * 2);  // 2x predicted move
+            double atr = computeATR(history, 14);
+            sig.stopLossPrice = closes.back() - (atr * 2.0);
+            sig.takeProfitPrice = closes.back() * (1.0 + prediction * 2);  // 2x predicted move
             sig.confidence = confidence;
 
             return sig;
         }
 
         if (prediction < sellThreshold_ && confidence >= confidenceThreshold_) {
-            float strength = std::min(1.0f, std::abs(prediction) / 0.02f);
+            double strength = std::min(1.0, std::abs(prediction) / 0.02);
 
-            if (rsi > 60.0f) {
-                confidence = std::min(1.0f, confidence + 0.1f);
+            if (rsi > 60.0) {
+                confidence = std::min(1.0, confidence + 0.1);
             }
 
             StrategySignal sig = StrategySignal::sell(strength,
                 "ML Prediction: " + std::to_string(prediction * 100) + "% expected return");
 
-            float atr = computeATR(history, 14);
-            sig.stopLossPrice = closes.back() + (atr * 2.0f);
-            sig.takeProfitPrice = closes.back() * (1.0f + prediction * 2);
+            double atr = computeATR(history, 14);
+            sig.stopLossPrice = closes.back() + (atr * 2.0);
+            sig.takeProfitPrice = closes.back() * (1.0 + prediction * 2);
             sig.confidence = confidence;
 
             return sig;
@@ -128,8 +130,8 @@ public:
     }
 
     void reset() override {
-        lastPrediction_ = 0.0f;
-        lastActualReturn_ = 0.0f;
+        lastPrediction_ = 0.0;
+        lastActualReturn_ = 0.0;
         lastTrainIdx_ = 0;
     }
 
@@ -141,28 +143,28 @@ protected:
     }
 
 public:
-    void setBuyThreshold(float t) { buyThreshold_ = t; }
-    void setSellThreshold(float t) { sellThreshold_ = t; }
-    void setConfidenceThreshold(float t) { confidenceThreshold_ = t; }
+    void setBuyThreshold(double t) { buyThreshold_ = t; }
+    void setSellThreshold(double t) { sellThreshold_ = t; }
+    void setConfidenceThreshold(double t) { confidenceThreshold_ = t; }
     void setTrainOnline(bool train) { trainOnline_ = train; }
 
-    float getLastPrediction() const { return lastPrediction_; }
-    float getLastActualReturn() const { return lastActualReturn_; }
+    double getLastPrediction() const { return lastPrediction_; }
+    double getLastActualReturn() const { return lastActualReturn_; }
 };
 
 // Combined ML + Technical Strategy
 class HybridMLStrategy : public StrategyBase {
 private:
     MLPredictor& predictor_;
-    float mlWeight_ = 0.6f;          // Weight given to ML signal
-    float technicalWeight_ = 0.4f;   // Weight given to technical signal
-    float combinedThreshold_ = 0.4f; // Minimum combined score to trade
+    double mlWeight_ = 0.6;          // Weight given to ML signal
+    double technicalWeight_ = 0.4;   // Weight given to technical signal
+    double combinedThreshold_ = 0.4; // Minimum combined score to trade
 
 public:
     HybridMLStrategy(MLPredictor& predictor)
         : StrategyBase("HybridML", 60), predictor_(predictor) {
-        addParam("mlWeight", 0.6f, 0.3f, 0.9f, 0.1f);
-        addParam("combinedThreshold", 0.4f, 0.2f, 0.7f, 0.1f);
+        addParam("mlWeight", 0.6, 0.3, 0.9, 0.1);
+        addParam("combinedThreshold", 0.4, 0.2, 0.7, 0.1);
     }
 
     StrategySignal generateSignal(const std::vector<Candle>& history, size_t idx) override {
@@ -170,55 +172,56 @@ public:
             return StrategySignal::hold("Insufficient data");
         }
 
-        std::vector<float> closes;
+        std::vector<double> closes;
         for (const auto& c : history) closes.push_back(c.close);
 
         // === ML Signal ===
-        float rsi = computeRSI(closes, 14);
+        double rsi = computeRSI(closes, 14);
         auto macd = computeMACD(closes);
-        float macdHist = macd.first - macd.second;
+        double macdHist = macd.first - macd.second;
 
-        std::vector<float> returns;
+        std::vector<double> returns;
         for (size_t i = 1; i < closes.size(); ++i) {
-            returns.push_back(std::log(closes[i] / closes[i-1]));
+            if (closes[i-1] > 0)
+                returns.push_back(std::log(closes[i] / closes[i-1]));
         }
-        float garchVol = computeGARCHVolatility(returns);
+        double garchVol = computeGARCHVolatility(returns);
 
-        std::vector<float> features = predictor_.extractFeatures(rsi, macdHist, 0.0f, garchVol, 30, (int)idx);
-        float mlPrediction = predictor_.predict(features);
-        float mlSignal = std::tanh(mlPrediction * 50);  // Scale to -1 to 1
+        std::vector<double> features = predictor_.extractFeatures(rsi, macdHist, 0.0, garchVol, 30, (int)idx);
+        double mlPrediction = predictor_.predict(features);
+        double mlSignal = std::tanh(mlPrediction * 50);  // Scale to -1 to 1
 
         // === Technical Signal ===
-        BollingerBands bb = computeBollingerBands(closes, 20, 2.0f);
+        BollingerBands bb = computeBollingerBands(closes, 20, 2.0);
         ADXResult adx = computeADX(history, 14);
-        float current = closes.back();
+        double current = closes.back();
 
-        float technicalSignal = 0.0f;
+        double technicalSignal = 0.0;
 
         // RSI contribution
-        if (rsi < 30) technicalSignal += 0.3f;
-        else if (rsi > 70) technicalSignal -= 0.3f;
+        if (rsi < 30) technicalSignal += 0.3;
+        else if (rsi > 70) technicalSignal -= 0.3;
 
         // Bollinger contribution
-        float bbPosition = (current - bb.lower) / (bb.upper - bb.lower);
-        technicalSignal += (0.5f - bbPosition) * 0.4f;
+        double bbPosition = (current - bb.lower) / (bb.upper - bb.lower);
+        technicalSignal += (0.5 - bbPosition) * 0.4;
 
         // MACD contribution
-        technicalSignal += std::tanh(macdHist) * 0.3f;
+        technicalSignal += std::tanh(macdHist) * 0.3;
 
         // === Combine signals ===
-        float combinedSignal = (mlSignal * mlWeight_) + (technicalSignal * technicalWeight_);
+        double combinedSignal = (mlSignal * mlWeight_) + (technicalSignal * technicalWeight_);
 
         // Calculate confidence
-        float confidence = std::abs(combinedSignal);
+        double confidence = std::abs(combinedSignal);
 
         // Generate signal
         if (combinedSignal > combinedThreshold_) {
             StrategySignal sig = StrategySignal::buy(combinedSignal,
                 "Hybrid: ML=" + std::to_string(mlSignal) + ", Tech=" + std::to_string(technicalSignal));
 
-            float atr = computeATR(history, 14);
-            sig.stopLossPrice = current - (atr * 2.0f);
+            double atr = computeATR(history, 14);
+            sig.stopLossPrice = current - (atr * 2.0);
             sig.confidence = confidence;
 
             return sig;
@@ -228,8 +231,8 @@ public:
             StrategySignal sig = StrategySignal::sell(std::abs(combinedSignal),
                 "Hybrid: ML=" + std::to_string(mlSignal) + ", Tech=" + std::to_string(technicalSignal));
 
-            float atr = computeATR(history, 14);
-            sig.stopLossPrice = current + (atr * 2.0f);
+            double atr = computeATR(history, 14);
+            sig.stopLossPrice = current + (atr * 2.0);
             sig.confidence = confidence;
 
             return sig;
@@ -250,7 +253,7 @@ public:
 protected:
     void onParametersChanged() override {
         mlWeight_ = getParamValue("mlWeight");
-        technicalWeight_ = 1.0f - mlWeight_;
+        technicalWeight_ = 1.0 - mlWeight_;
         combinedThreshold_ = getParamValue("combinedThreshold");
     }
 };

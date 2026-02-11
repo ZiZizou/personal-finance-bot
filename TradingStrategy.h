@@ -8,35 +8,35 @@
 
 struct OptionSignal {
     std::string type; // "call" or "put"
-    float strike;
+    double strike;
     int period_days; // Expiry duration
 };
 
 struct Signal {
     std::string action; // "buy", "sell", "hold"
-    float entry;
-    float exit; // Primary target (kept for compatibility)
-    std::vector<float> targets; // List of potential targets
-    float confidence; // 0-100%
+    double entry;
+    double exit; // Primary target (kept for compatibility)
+    std::vector<double> targets; // List of potential targets
+    double confidence; // 0-100%
     std::string reason;
     std::optional<OptionSignal> option;
-    
+
     // For Hold signals:
-    float prospectiveBuy;
-    float prospectiveSell;
-    
+    double prospectiveBuy;
+    double prospectiveSell;
+
     // ML Prediction debug
-    float mlForecast;
+    double mlForecast;
 };
 
 // Regime Detection
 // Returns: "Bull", "Bear", "Sideways", "HighVol"
-std::string detectMarketRegime(const std::vector<float>& prices);
+std::string detectMarketRegime(const std::vector<double>& prices);
 
 // Updated Signature
-Signal generateSignal(const std::string& symbol, 
-                      const std::vector<Candle>& candles, 
-                      float sentimentScore,
+Signal generateSignal(const std::string& symbol,
+                      const std::vector<Candle>& candles,
+                      double sentimentScore,
                       const Fundamentals& fund,
                       const OnChainData& onChain,
                       const SupportResistance& levels,

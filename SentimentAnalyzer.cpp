@@ -221,7 +221,7 @@ bool SentimentAnalyzer::init(const std::string& modelPath) {
 }
 
 SentimentResult SentimentAnalyzer::analyzeSingle(const std::string& text) {
-    SentimentResult res = {0.0f, 0.0f, "Neutral"};
+    SentimentResult res = {0.0, 0.0, "Neutral"};
 
 #ifdef ENABLE_LLAMA
     // 1. Try Local LLM for sentiment analysis
@@ -274,29 +274,29 @@ SentimentResult SentimentAnalyzer::analyzeSingle(const std::string& text) {
     }
 
     if (posCount > negCount) {
-        res.score = 0.5f + (0.1f * std::min(posCount, 5)); 
+        res.score = 0.5 + (0.1 * std::min(posCount, 5)); 
         res.label = "Positive";
-        res.confidence = 60.0f + (posCount * 5.0f);
+        res.confidence = 60.0 + (posCount * 5.0);
     } else if (negCount > posCount) {
-        res.score = -0.5f - (0.1f * std::min(negCount, 5));
+        res.score = -0.5 - (0.1 * std::min(negCount, 5));
         res.label = "Negative";
-        res.confidence = 60.0f + (negCount * 5.0f);
+        res.confidence = 60.0 + (negCount * 5.0);
     } else {
-        res.score = 0.0f;
+        res.score = 0.0;
         res.label = "Neutral";
-        res.confidence = 50.0f;
+        res.confidence = 50.0;
     }
     
-    res.score = std::clamp(res.score, -1.0f, 1.0f);
-    res.confidence = std::clamp(res.confidence, 0.0f, 100.0f);
+    res.score = std::clamp(res.score, -1.0, 1.0);
+    res.confidence = std::clamp(res.confidence, 0.0, 100.0);
 
     return res;
 }
 
-float SentimentAnalyzer::analyze(const std::vector<std::string>& texts) {
-    if (texts.empty()) return 0.0f;
+double SentimentAnalyzer::analyze(const std::vector<std::string>& texts) {
+    if (texts.empty()) return 0.0;
 
-    float totalScore = 0.0f;
+    double totalScore = 0.0;
     int processed = 0;
 
     for (const auto& t : texts) {
@@ -305,5 +305,5 @@ float SentimentAnalyzer::analyze(const std::vector<std::string>& texts) {
         processed++;
     }
 
-    return (processed > 0) ? (totalScore / processed) : 0.0f;
+    return (processed > 0) ? (totalScore / processed) : 0.0;
 }

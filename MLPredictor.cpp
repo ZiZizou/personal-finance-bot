@@ -7,26 +7,26 @@
 // ============= MLPredictor Implementation =============
 
 MLPredictor::MLPredictor() {
-    weights.resize(TOTAL_FEATURE_COUNT, 0.0f);
-    bias = 0.0f;
-    learningRate = 0.01f;
-    regularization = 0.001f;  // L2 regularization
+    weights.resize(TOTAL_FEATURE_COUNT, 0.0);
+    bias = 0.0;
+    learningRate = 0.01;
+    regularization = 0.001;  // L2 regularization
 }
 
-void MLPredictor::train(const std::vector<float>& features, float target) {
+void MLPredictor::train(const std::vector<double>& features, double target) {
     if (features.size() < BASE_FEATURE_COUNT) return;
 
     // Pad features if needed
-    std::vector<float> paddedFeatures = features;
-    while (paddedFeatures.size() < TOTAL_FEATURE_COUNT) {
-        paddedFeatures.push_back(0.0f);
+    std::vector<double> paddedFeatures = features;
+    while (paddedFeatures.size() < (size_t)TOTAL_FEATURE_COUNT) {
+        paddedFeatures.push_back(0.0);
     }
 
     // Forward pass
-    float prediction = predict(paddedFeatures);
+    double prediction = predict(paddedFeatures);
 
     // Error
-    float error = prediction - target;
+    double error = prediction - target;
 
     // Update MSE tracking
     runningMSE_ += error * error;
@@ -34,22 +34,23 @@ void MLPredictor::train(const std::vector<float>& features, float target) {
 
     // Backward pass with L2 regularization
     // dL/dw = 2 * error * feature + 2 * lambda * weight
-    for (size_t i = 0; i < TOTAL_FEATURE_COUNT && i < paddedFeatures.size(); ++i) {
-        float gradient = error * paddedFeatures[i] + regularization * weights[i];
+    for (size_t i = 0; i < (size_t)TOTAL_FEATURE_COUNT && i < paddedFeatures.size(); ++i) {
+        double gradient = error * paddedFeatures[i] + regularization * weights[i];
         weights[i] -= learningRate * gradient;
     }
     bias -= learningRate * error;
 }
 
-void MLPredictor::trainBatch(const std::vector<std::vector<float>>& features,
-                             const std::vector<float>& targets,
-                             float validationSplit,
+void MLPredictor::trainBatch(const std::vector<std::vector<double>>& features,
+                             const std::vector<double>& targets,
+                             double validationSplit,
                              int epochs) {
     if (features.empty() || features.size() != targets.size()) return;
 
     // Split data
     size_t n = features.size();
     size_t valSize = (size_t)(n * validationSplit);
+    if (valSize == 0 && validationSplit > 0) valSize = 1;
     size_t trainSize = n - valSize;
 
     // Shuffle indices
@@ -59,7 +60,7 @@ void MLPredictor::trainBatch(const std::vector<std::vector<float>>& features,
     std::mt19937 g(rd());
     std::shuffle(indices.begin(), indices.end(), g);
 
-    float prevValMSE = 1e10f;
+    double prevValMSE = 1e10;
     int patience = 10;
     int noImproveCount = 0;
 
@@ -74,83 +75,82 @@ void MLPredictor::trainBatch(const std::vector<std::vector<float>>& features,
         }
 
         // Validate
-        float valMSE = 0.0f;
-        for (size_t i = trainSize; i < n; ++i) {
-            size_t idx = indices[i];
-            float pred = predict(features[idx]);
-            float err = pred - targets[idx];
-            valMSE += err * err;
-        }
-        valMSE /= valSize;
-
-        // Early stopping
-        if (valMSE < prevValMSE - 1e-6f) {
-            prevValMSE = valMSE;
-            noImproveCount = 0;
-            if (valMSE < bestMSE_) {
-                bestMSE_ = valMSE;
+        if (valSize > 0) {
+            double valMSE = 0.0;
+            for (size_t i = trainSize; i < n; ++i) {
+                size_t idx = indices[i];
+                double pred = predict(features[idx]);
+                double err = pred - targets[idx];
+                valMSE += err * err;
             }
-        } else {
-            noImproveCount++;
-            if (noImproveCount >= patience) {
-                break;  // Early stop
+            valMSE /= valSize;
+
+            // Early stopping
+            if (valMSE < prevValMSE - 1e-6) {
+                prevValMSE = valMSE;
+                noImproveCount = 0;
+                if (valMSE < bestMSE_) {
+                    bestMSE_ = valMSE;
+                }
+            } else {
+                noImproveCount++;
+                if (noImproveCount >= patience) {
+                    break;  // Early stop
+                }
             }
         }
     }
 }
 
-float MLPredictor::predict(const std::vector<float>& features) const {
-    if (features.size() < BASE_FEATURE_COUNT) return 0.0f;
-
-    float sum = bias;
-    for (size_t i = 0; i < TOTAL_FEATURE_COUNT && i < features.size(); ++i) {
-        sum += weights[i] * features[i];
+double MLPredictor::predict(const std::vector<double>& features) const {
+    if (features.empty()) return 0.0;
+    
+    double dotProduct = 0.0;
+    for (size_t i = 0; i < weights.size() && i < features.size(); ++i) {
+        dotProduct += weights[i] * features[i];
     }
-    return sum;
+    
+    return dotProduct + bias;
 }
 
-std::vector<float> MLPredictor::extractFeatures(float rsi, float macdHist, float sentiment,
-                                                float garchVol, int cyclePeriod, int dayIndex) {
-    std::vector<float> f(TOTAL_FEATURE_COUNT, 0.0f);
+std::vector<double> MLPredictor::extractFeatures(double rsi, double macdHist, double sentiment,
+                                               double garchVol, int cyclePeriod, int dayIndex) {
+    std::vector<double> f;
+    f.reserve(TOTAL_FEATURE_COUNT);
 
-    // 1. RSI (Scaled to -1..1)
-    f[0] = (rsi - 50.0f) / 50.0f;
+    // 1. Base Indicators (normalized)
+    f.push_back(rsi / 100.0);
+    f.push_back(std::tanh(macdHist * 10.0));
+    f.push_back(sentiment);
+    f.push_back(std::tanh(garchVol * 50.0));
+    
+    // 2. Cycle Phase
+    const double PI_VAL = 3.14159265358979323846;
+    double phase = (cyclePeriod > 0) ? std::cos(2.0 * PI_VAL * dayIndex / cyclePeriod) : 0.0;
+    f.push_back(phase);
 
-    // 2. MACD Hist (Tanh to squash)
-    f[1] = std::tanh(macdHist);
-
-    // 3. Sentiment (-1..1)
-    f[2] = sentiment;
-
-    // 4. GARCH Volatility (Scaled)
-    f[3] = std::tanh(garchVol * 10.0f);
-
-    // 5. Cycle Phase (Cosine of time in cycle)
-    if (cyclePeriod > 0) {
-        float angle = 2.0f * 3.14159f * (float)dayIndex / (float)cyclePeriod;
-        f[4] = std::cos(angle);
-    }
-
-    // 6-10. Lagged returns (from history)
-    const int lagDays[] = {1, 2, 3, 5, 10};
-    for (int i = 0; i < LAGGED_FEATURES; ++i) {
-        int lag = lagDays[i];
+    // 3. Lagged Returns
+    for (int lag : {1, 2, 3, 5, 10}) {
         if (returnHistory_.size() >= (size_t)lag) {
-            f[BASE_FEATURE_COUNT + i] = returnHistory_[returnHistory_.size() - lag];
+            f.push_back(returnHistory_[returnHistory_.size() - lag]);
+        } else {
+            f.push_back(0.0);
         }
     }
 
-    // 11-15. Cross-product features
-    f[BASE_FEATURE_COUNT + LAGGED_FEATURES] = f[0] * f[1];      // RSI * MACD
-    f[BASE_FEATURE_COUNT + LAGGED_FEATURES + 1] = f[0] * f[2];  // RSI * Sentiment
-    f[BASE_FEATURE_COUNT + LAGGED_FEATURES + 2] = f[1] * f[3];  // MACD * Vol
-    f[BASE_FEATURE_COUNT + LAGGED_FEATURES + 3] = f[2] * f[3];  // Sentiment * Vol
-    f[BASE_FEATURE_COUNT + LAGGED_FEATURES + 4] = f[0] * f[0];  // RSI squared
+    // 4. Feature Interactions (Cross-products)
+    if (f.size() >= 5) {
+        f.push_back(f[0] * f[2]); // RSI * Sentiment
+        f.push_back(f[1] * f[3]); // MACD * Volatility
+        f.push_back(f[0] * f[3]); // RSI * Volatility
+        f.push_back(f[2] * f[4]); // Sentiment * Cycle
+        f.push_back(f[1] * f[4]); // MACD * Cycle
+    }
 
     return f;
 }
 
-void MLPredictor::addReturn(float dailyReturn) {
+void MLPredictor::addReturn(double dailyReturn) {
     returnHistory_.push_back(dailyReturn);
     if (returnHistory_.size() > MAX_HISTORY) {
         returnHistory_.erase(returnHistory_.begin());
@@ -158,19 +158,19 @@ void MLPredictor::addReturn(float dailyReturn) {
 }
 
 void MLPredictor::reset() {
-    std::fill(weights.begin(), weights.end(), 0.0f);
-    bias = 0.0f;
+    std::fill(weights.begin(), weights.end(), 0.0);
+    bias = 0.0;
     trainSamples_ = 0;
-    runningMSE_ = 0.0f;
+    runningMSE_ = 0.0;
     returnHistory_.clear();
 }
 
-std::vector<std::pair<int, float>> MLPredictor::getFeatureImportance() const {
-    std::vector<std::pair<int, float>> importance;
+std::vector<std::pair<int, double>> MLPredictor::getFeatureImportance() const {
+    std::vector<std::pair<int, double>> importance;
     for (size_t i = 0; i < weights.size(); ++i) {
         importance.push_back({(int)i, std::abs(weights[i])});
     }
-    std::sort(importance.begin(), importance.end(),
+    std::sort(importance.begin(), importance.end(), 
               [](const auto& a, const auto& b) { return a.second > b.second; });
     return importance;
 }
@@ -183,44 +183,38 @@ NeuralNetPredictor::NeuralNetPredictor(int inputSize, int hiddenSize)
 }
 
 void NeuralNetPredictor::initializeWeights() {
-    std::random_device rd;
-    std::mt19937 gen(rd());
+    std::default_random_engine generator;
+    std::normal_distribution<double> distribution(0.0, 0.1);
 
-    // Xavier initialization
-    float stdInput = std::sqrt(2.0f / (inputSize_ + hiddenSize_));
-    float stdHidden = std::sqrt(2.0f / (hiddenSize_ + 1));
-
-    std::normal_distribution<float> distInput(0.0f, stdInput);
-    std::normal_distribution<float> distHidden(0.0f, stdHidden);
-
-    weightsInput_.resize(inputSize_, std::vector<float>(hiddenSize_));
+    weightsInput_.resize(inputSize_, std::vector<double>(hiddenSize_));
+    velocityInput_.resize(inputSize_, std::vector<double>(hiddenSize_, 0.0));
     for (int i = 0; i < inputSize_; ++i) {
         for (int j = 0; j < hiddenSize_; ++j) {
-            weightsInput_[i][j] = distInput(gen);
+            weightsInput_[i][j] = distribution(generator);
         }
     }
 
-    biasHidden_.resize(hiddenSize_, 0.0f);
+    biasHidden_.resize(hiddenSize_, 0.0);
+    velocityHidden_.resize(hiddenSize_, 0.0);
+
     weightsOutput_.resize(hiddenSize_);
+    velocityOutput_.resize(hiddenSize_, 0.0);
     for (int i = 0; i < hiddenSize_; ++i) {
-        weightsOutput_[i] = distHidden(gen);
+        weightsOutput_[i] = distribution(generator);
     }
-    biasOutput_ = 0.0f;
 
+    biasOutput_ = 0.0;
+    velocityBiasOutput_ = 0.0;
+    
     hiddenActivations_.resize(hiddenSize_);
-
-    // Initialize momentum terms
-    velocityInput_.resize(inputSize_, std::vector<float>(hiddenSize_, 0.0f));
-    velocityHidden_.resize(hiddenSize_, 0.0f);
-    velocityOutput_.resize(hiddenSize_, 0.0f);
 }
 
-float NeuralNetPredictor::predict(const std::vector<float>& features) {
-    if ((int)features.size() < inputSize_) return 0.0f;
+double NeuralNetPredictor::predict(const std::vector<double>& features) {
+    if (features.size() < (size_t)inputSize_) return 0.0;
 
     // Hidden layer
     for (int j = 0; j < hiddenSize_; ++j) {
-        float sum = biasHidden_[j];
+        double sum = biasHidden_[j];
         for (int i = 0; i < inputSize_; ++i) {
             sum += features[i] * weightsInput_[i][j];
         }
@@ -228,7 +222,7 @@ float NeuralNetPredictor::predict(const std::vector<float>& features) {
     }
 
     // Output layer (linear)
-    float output = biasOutput_;
+    double output = biasOutput_;
     for (int j = 0; j < hiddenSize_; ++j) {
         output += hiddenActivations_[j] * weightsOutput_[j];
     }
@@ -236,74 +230,55 @@ float NeuralNetPredictor::predict(const std::vector<float>& features) {
     return output;
 }
 
-void NeuralNetPredictor::train(const std::vector<float>& features, float target) {
-    if ((int)features.size() < inputSize_) return;
+void NeuralNetPredictor::train(const std::vector<double>& features, double target) {
+    if (features.size() < (size_t)inputSize_) return;
 
-    // Forward pass (stores activations)
-    float prediction = predict(features);
+    // Forward pass
+    double prediction = predict(features);
+    double error = prediction - target;
 
-    // Error
-    float error = prediction - target;
-
-    // Update stats
-    runningMSE_ += error * error;
-    trainSamples_++;
-
-    // Backpropagation
-
-    // Output layer gradient
-    float dOutput = error;  // Linear activation derivative = 1
-
-    // Hidden layer gradients
-    std::vector<float> dHidden(hiddenSize_);
+    // Backward pass
+    // Output layer gradients
+    double deltaOutput = error; // Linear activation derivative is 1
+    
+    std::vector<double> deltaHidden(hiddenSize_);
     for (int j = 0; j < hiddenSize_; ++j) {
-        dHidden[j] = dOutput * weightsOutput_[j] * tanh_derivative(hiddenActivations_[j]);
+        deltaHidden[j] = deltaOutput * weightsOutput_[j] * tanh_derivative(hiddenActivations_[j]);
     }
 
-    // Update output weights with momentum
+    // Update weights with momentum and L2
     for (int j = 0; j < hiddenSize_; ++j) {
-        float grad = dOutput * hiddenActivations_[j] + regularization_ * weightsOutput_[j];
-        velocityOutput_[j] = momentum_ * velocityOutput_[j] - learningRate_ * grad;
+        // Output weights
+        double gradOutput = deltaOutput * hiddenActivations_[j] + regularization_ * weightsOutput_[j];
+        velocityOutput_[j] = momentum_ * velocityOutput_[j] - learningRate_ * gradOutput;
         weightsOutput_[j] += velocityOutput_[j];
-    }
-    velocityBiasOutput_ = momentum_ * velocityBiasOutput_ - learningRate_ * dOutput;
-    biasOutput_ += velocityBiasOutput_;
 
-    // Update input-hidden weights with momentum
-    for (int i = 0; i < inputSize_; ++i) {
-        for (int j = 0; j < hiddenSize_; ++j) {
-            float grad = dHidden[j] * features[i] + regularization_ * weightsInput_[i][j];
-            velocityInput_[i][j] = momentum_ * velocityInput_[i][j] - learningRate_ * grad;
+        // Hidden weights & biases
+        for (int i = 0; i < inputSize_; ++i) {
+            double gradInput = deltaHidden[j] * features[i] + regularization_ * weightsInput_[i][j];
+            velocityInput_[i][j] = momentum_ * velocityInput_[i][j] - learningRate_ * gradInput;
             weightsInput_[i][j] += velocityInput_[i][j];
         }
-    }
-
-    for (int j = 0; j < hiddenSize_; ++j) {
-        velocityHidden_[j] = momentum_ * velocityHidden_[j] - learningRate_ * dHidden[j];
+        
+        velocityHidden_[j] = momentum_ * velocityHidden_[j] - learningRate_ * deltaHidden[j];
         biasHidden_[j] += velocityHidden_[j];
     }
+
+    velocityBiasOutput_ = momentum_ * velocityBiasOutput_ - learningRate_ * deltaOutput;
+    biasOutput_ += velocityBiasOutput_;
+
+    runningMSE_ += error * error;
+    trainSamples_++;
 }
 
-void NeuralNetPredictor::trainBatch(const std::vector<std::vector<float>>& features,
-                                    const std::vector<float>& targets,
+void NeuralNetPredictor::trainBatch(const std::vector<std::vector<double>>& features,
+                                    const std::vector<double>& targets,
                                     int epochs,
-                                    float validationSplit) {
-    if (features.empty()) return;
-
-    size_t n = features.size();
-    size_t valSize = (size_t)(n * validationSplit);
-    size_t trainSize = n - valSize;
-
-    std::vector<size_t> indices(n);
-    std::iota(indices.begin(), indices.end(), 0);
-    std::random_device rd;
-    std::mt19937 g(rd());
-
-    for (int epoch = 0; epoch < epochs; ++epoch) {
-        std::shuffle(indices.begin(), indices.begin() + trainSize, g);
-
-        for (size_t i = 0; i < trainSize; ++i) {
-            train(features[indices[i]], targets[indices[i]]);
+                                    double validationSplit) {
+    (void)validationSplit; // Simplified batch training
+    for (int e = 0; e < epochs; ++e) {
+        for (size_t i = 0; i < features.size(); ++i) {
+            train(features[i], targets[i]);
         }
     }
 }
@@ -311,196 +286,152 @@ void NeuralNetPredictor::trainBatch(const std::vector<std::vector<float>>& featu
 void NeuralNetPredictor::reset() {
     initializeWeights();
     trainSamples_ = 0;
-    runningMSE_ = 0.0f;
+    runningMSE_ = 0.0;
 }
 
 // ============= RidgeRegression Implementation =============
 
-void RidgeRegression::fit(const std::vector<std::vector<float>>& X,
-                          const std::vector<float>& y) {
-    if (X.empty() || y.empty() || X.size() != y.size()) return;
+void RidgeRegression::fit(const std::vector<std::vector<double>>& X,
+                         const std::vector<double>& y) {
+    if (X.empty() || X.size() != y.size()) return;
 
     int n = X.size();
     int p = X[0].size();
 
-    // Add bias column (column of 1s)
-    std::vector<std::vector<float>> Xb(n, std::vector<float>(p + 1));
+    // Add bias term (column of 1s)
+    std::vector<std::vector<double>> X_bias(n, std::vector<double>(p + 1));
     for (int i = 0; i < n; ++i) {
-        Xb[i][0] = 1.0f;  // Bias term
+        X_bias[i][0] = 1.0;
         for (int j = 0; j < p; ++j) {
-            Xb[i][j + 1] = X[i][j];
+            X_bias[i][j+1] = X[i][j];
         }
     }
 
-    // X'X
-    auto Xt = transpose(Xb);
-    auto XtX = matMul(Xt, Xb);
+    // Normal equation: w = (X'X + lambda*I)^-1 * X'y
+    auto Xt = transpose(X_bias);
+    auto XtX = matMul(Xt, X_bias);
 
-    // Add regularization: X'X + lambda*I
-    for (int i = 1; i < p + 1; ++i) {  // Don't regularize bias
+    // Add regularization
+    for (int i = 0; i < p + 1; ++i) {
         XtX[i][i] += lambda_;
     }
 
-    // X'y
-    std::vector<float> Xty(p + 1, 0.0f);
-    for (int j = 0; j < p + 1; ++j) {
-        for (int i = 0; i < n; ++i) {
-            Xty[j] += Xt[j][i] * y[i];
+    auto XtX_inv = inverse(XtX);
+    if (XtX_inv.empty()) return; // SVD fallback would be better
+
+    auto XtY = std::vector<double>(p + 1, 0.0);
+    for (int i = 0; i < p + 1; ++i) {
+        for (int k = 0; k < n; ++k) {
+            XtY[i] += Xt[i][k] * y[k];
         }
     }
 
-    // Solve (X'X + lambda*I)^-1 * X'y
-    auto XtXinv = inverse(XtX);
-
-    weights_.resize(p);
-    for (int j = 0; j < p + 1; ++j) {
-        float sum = 0.0f;
-        for (int k = 0; k < p + 1; ++k) {
-            sum += XtXinv[j][k] * Xty[k];
-        }
-        if (j == 0) {
-            bias_ = sum;
-        } else {
-            weights_[j - 1] = sum;
+    std::vector<double> w(p + 1, 0.0);
+    for (int i = 0; i < p + 1; ++i) {
+        for (int j = 0; j < p + 1; ++j) {
+            w[i] += XtX_inv[i][j] * XtY[j];
         }
     }
 
+    bias_ = w[0];
+    weights_.assign(w.begin() + 1, w.end());
     isFitted_ = true;
 }
 
-float RidgeRegression::predict(const std::vector<float>& x) const {
-    if (!isFitted_ || x.size() != weights_.size()) return 0.0f;
-
-    float sum = bias_;
-    for (size_t i = 0; i < weights_.size(); ++i) {
-        sum += weights_[i] * x[i];
+double RidgeRegression::predict(const std::vector<double>& x) const {
+    if (!isFitted_ || x.size() != weights_.size()) return 0.0;
+    double res = bias_;
+    for (size_t i = 0; i < x.size(); ++i) {
+        res += x[i] * weights_[i];
     }
-    return sum;
+    return res;
 }
 
-std::vector<float> RidgeRegression::predictBatch(const std::vector<std::vector<float>>& X) const {
-    std::vector<float> predictions;
-    for (const auto& x : X) {
-        predictions.push_back(predict(x));
-    }
-    return predictions;
+std::vector<double> RidgeRegression::predictBatch(const std::vector<std::vector<double>>& X) const {
+    std::vector<double> res;
+    for (const auto& x : X) res.push_back(predict(x));
+    return res;
 }
 
-std::vector<std::vector<float>> RidgeRegression::matMul(
-    const std::vector<std::vector<float>>& A,
-    const std::vector<std::vector<float>>& B) const {
-
-    int m = A.size();
-    int n = B[0].size();
-    int k = A[0].size();
-
-    std::vector<std::vector<float>> C(m, std::vector<float>(n, 0.0f));
-    for (int i = 0; i < m; ++i) {
-        for (int j = 0; j < n; ++j) {
-            for (int l = 0; l < k; ++l) {
-                C[i][j] += A[i][l] * B[l][j];
-            }
-        }
-    }
+std::vector<std::vector<double>> RidgeRegression::matMul(
+    const std::vector<std::vector<double>>& A,
+    const std::vector<std::vector<double>>& B) const {
+    int ni = A.size();
+    int nk = A[0].size();
+    int nj = B[0].size();
+    std::vector<std::vector<double>> C(ni, std::vector<double>(nj, 0.0));
+    for (int i = 0; i < ni; ++i)
+        for (int j = 0; j < nj; ++j)
+            for (int k = 0; k < nk; ++k)
+                C[i][j] += A[i][k] * B[k][j];
     return C;
 }
 
-std::vector<std::vector<float>> RidgeRegression::transpose(
-    const std::vector<std::vector<float>>& A) const {
-
-    int m = A.size();
-    int n = A[0].size();
-
-    std::vector<std::vector<float>> T(n, std::vector<float>(m));
-    for (int i = 0; i < m; ++i) {
-        for (int j = 0; j < n; ++j) {
-            T[j][i] = A[i][j];
-        }
-    }
-    return T;
+std::vector<std::vector<double>> RidgeRegression::transpose(
+    const std::vector<std::vector<double>>& A) const {
+    int ni = A.size();
+    int nj = A[0].size();
+    std::vector<std::vector<double>> At(nj, std::vector<double>(ni));
+    for (int i = 0; i < ni; ++i)
+        for (int j = 0; j < nj; ++j)
+            At[j][i] = A[i][j];
+    return At;
 }
 
-std::vector<std::vector<float>> RidgeRegression::inverse(
-    std::vector<std::vector<float>> A) const {
-
+std::vector<std::vector<double>> RidgeRegression::inverse(
+    std::vector<std::vector<double>> A) const {
     int n = A.size();
-    std::vector<std::vector<float>> I(n, std::vector<float>(n, 0.0f));
-    for (int i = 0; i < n; ++i) I[i][i] = 1.0f;
+    std::vector<std::vector<double>> inv(n, std::vector<double>(n, 0.0));
+    for (int i = 0; i < n; ++i) inv[i][i] = 1.0;
 
-    // Gauss-Jordan elimination
     for (int i = 0; i < n; ++i) {
-        // Find pivot
-        int maxRow = i;
-        for (int k = i + 1; k < n; ++k) {
-            if (std::abs(A[k][i]) > std::abs(A[maxRow][i])) {
-                maxRow = k;
-            }
-        }
-        std::swap(A[i], A[maxRow]);
-        std::swap(I[i], I[maxRow]);
-
-        if (std::abs(A[i][i]) < 1e-10f) continue;
-
-        // Scale pivot row
-        float pivot = A[i][i];
+        double pivot = A[i][i];
+        if (std::abs(pivot) < 1e-10) return {}; // Singular
         for (int j = 0; j < n; ++j) {
             A[i][j] /= pivot;
-            I[i][j] /= pivot;
+            inv[i][j] /= pivot;
         }
-
-        // Eliminate column
         for (int k = 0; k < n; ++k) {
             if (k != i) {
-                float factor = A[k][i];
+                double factor = A[k][i];
                 for (int j = 0; j < n; ++j) {
                     A[k][j] -= factor * A[i][j];
-                    I[k][j] -= factor * I[i][j];
+                    inv[k][j] -= factor * inv[i][j];
                 }
             }
         }
     }
-
-    return I;
+    return inv;
 }
 
 // ============= EnsemblePredictor Implementation =============
 
-EnsemblePredictor::EnsemblePredictor() : neuralModel_(15, 8) {}
+EnsemblePredictor::EnsemblePredictor() {}
 
-void EnsemblePredictor::addSample(const std::vector<float>& features, float target) {
+void EnsemblePredictor::addSample(const std::vector<double>& features, double target) {
     trainingFeatures_.push_back(features);
     trainingTargets_.push_back(target);
+    linearModel_.train(features, target);
+    neuralModel_.train(features, target);
 }
 
 void EnsemblePredictor::train(int epochs) {
     if (trainingFeatures_.empty()) return;
-
-    // Train linear model online
-    for (size_t i = 0; i < trainingFeatures_.size(); ++i) {
-        linearModel_.train(trainingFeatures_[i], trainingTargets_[i]);
-    }
-
-    // Train neural network batch
-    neuralModel_.trainBatch(trainingFeatures_, trainingTargets_, epochs);
-
-    // Train ridge regression
     ridgeModel_.fit(trainingFeatures_, trainingTargets_);
+    // Neural model already trained online, but could do batch here
+    (void)epochs;
 }
 
-float EnsemblePredictor::predict(const std::vector<float>& features) {
-    float linearPred = linearModel_.predict(features);
-    float neuralPred = neuralModel_.predict(features);
-    float ridgePred = ridgeModel_.predict(features);
-
-    return linearWeight_ * linearPred +
-           neuralWeight_ * neuralPred +
-           ridgeWeight_ * ridgePred;
+double EnsemblePredictor::predict(const std::vector<double>& features) {
+    double p1 = linearModel_.predict(features);
+    double p2 = neuralModel_.predict(features);
+    double p3 = ridgeModel_.predict(features);
+    return linearWeight_ * p1 + neuralWeight_ * p2 + ridgeWeight_ * p3;
 }
 
 void EnsemblePredictor::reset() {
     linearModel_.reset();
     neuralModel_.reset();
-    ridgeModel_ = RidgeRegression(0.1f);
     trainingFeatures_.clear();
     trainingTargets_.clear();
 }

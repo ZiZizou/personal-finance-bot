@@ -3,22 +3,22 @@
 
 // Transaction cost modeling for realistic backtesting
 struct TransactionCostModel {
-    float commissionPercent = 0.001f;  // 10 bps (0.1%)
-    float slippagePercent = 0.0005f;   // 5 bps (0.05%)
-    float minCommission = 1.0f;        // Minimum commission per trade
+    double commissionPercent = 0.001;  // 10 bps (0.1%)
+    double slippagePercent = 0.0005;   // 5 bps (0.05%)
+    double minCommission = 1.0;        // Minimum commission per trade
 
     // Calculate total transaction cost for a trade
-    float calculateCost(float tradeValue) const {
-        float commission = tradeValue * commissionPercent;
+    double calculateCost(double tradeValue) const {
+        double commission = tradeValue * commissionPercent;
         return std::max(minCommission, commission);
     }
 
     // Calculate execution price after slippage
-    float applySlippage(float price, bool isBuy) const {
+    double applySlippage(double price, bool isBuy) const {
         if (isBuy) {
-            return price * (1.0f + slippagePercent);  // Pay more when buying
+            return price * (1.0 + slippagePercent);  // Pay more when buying
         } else {
-            return price * (1.0f - slippagePercent);  // Receive less when selling
+            return price * (1.0 - slippagePercent);  // Receive less when selling
         }
     }
 };
@@ -27,25 +27,25 @@ struct TransactionCostModel {
 struct RiskManagement {
     // Stop-loss settings
     bool enableStopLoss = false;
-    float stopLossPercent = 0.02f;     // 2% stop loss
-    float stopLossATRMultiple = 2.0f;  // Or use ATR-based stops
+    double stopLossPercent = 0.02;     // 2% stop loss
+    double stopLossATRMultiple = 2.0;  // Or use ATR-based stops
     bool useATRStopLoss = false;       // If true, use ATR multiple instead of percent
 
     // Take-profit settings
     bool enableTakeProfit = false;
-    float takeProfitPercent = 0.04f;   // 4% take profit
-    float takeProfitATRMultiple = 3.0f;
+    double takeProfitPercent = 0.04;   // 4% take profit
+    double takeProfitATRMultiple = 3.0;
     bool useATRTakeProfit = false;
 
     // Trailing stop settings
     bool enableTrailingStop = false;
-    float trailingStopPercent = 0.015f; // 1.5% trailing stop
-    float trailingStopATRMultiple = 1.5f;
+    double trailingStopPercent = 0.015; // 1.5% trailing stop
+    double trailingStopATRMultiple = 1.5;
     bool useATRTrailingStop = false;
 
     // Maximum drawdown circuit breaker
     bool enableMaxDrawdownStop = false;
-    float maxDrawdownPercent = 0.20f;  // Stop trading if 20% drawdown reached
+    double maxDrawdownPercent = 0.20;  // Stop trading if 20% drawdown reached
 };
 
 // Position sizing methods
@@ -58,15 +58,15 @@ struct PositionSizing {
     };
 
     Method method = Method::FixedFraction;
-    float fixedFraction = 0.1f;        // 10% of capital per trade
-    float maxPositionSize = 0.25f;     // Maximum 25% in any single position
-    float kellyFraction = 0.5f;        // Half-Kelly for reduced risk
-    float atrRiskPerTrade = 0.01f;     // Risk 1% of capital per ATR
+    double fixedFraction = 0.1;        // 10% of capital per trade
+    double maxPositionSize = 0.25;     // Maximum 25% in any single position
+    double kellyFraction = 0.5;        // Half-Kelly for reduced risk
+    double atrRiskPerTrade = 0.01;     // Risk 1% of capital per ATR
 
     // Calculate position size as fraction of capital
-    float calculateFraction(float winRate = 0.5f, float avgWinLossRatio = 1.0f,
-                           float atr = 0.0f, float price = 0.0f) const {
-        float fraction = fixedFraction;
+    double calculateFraction(double winRate = 0.5, double avgWinLossRatio = 1.0,
+                           double atr = 0.0, double price = 0.0) const {
+        double fraction = fixedFraction;
 
         switch (method) {
             case Method::FixedFraction:
@@ -76,11 +76,11 @@ struct PositionSizing {
             case Method::Kelly: {
                 // Kelly formula: f* = (bp - q) / b
                 // where b = win/loss ratio, p = win prob, q = loss prob
-                float b = avgWinLossRatio;
-                float p = winRate;
-                float q = 1.0f - p;
-                float kelly = (b * p - q) / b;
-                fraction = std::max(0.0f, kelly * kellyFraction);  // Apply Kelly fraction
+                double b = avgWinLossRatio;
+                double p = winRate;
+                double q = 1.0 - p;
+                double kelly = (b * p - q) / b;
+                fraction = std::max(0.0, kelly * kellyFraction);  // Apply Kelly fraction
                 break;
             }
 
@@ -105,7 +105,7 @@ struct PositionSizing {
 // Main backtest configuration
 struct BacktestConfig {
     // Capital
-    float initialCapital = 10000.0f;
+    double initialCapital = 10000.0;
 
     // Cost model
     TransactionCostModel costs;
@@ -120,7 +120,7 @@ struct BacktestConfig {
     int warmupPeriod = 60;
 
     // Risk-free rate for Sharpe/Sortino calculation (annualized)
-    float riskFreeRate = 0.04f;  // 4% annual
+    double riskFreeRate = 0.04;  // 4% annual
 
     // Trading frequency assumption (for annualization)
     int tradingDaysPerYear = 252;
@@ -141,32 +141,32 @@ struct BacktestConfig {
 
     static BacktestConfig realisticConfig() {
         BacktestConfig cfg;
-        cfg.costs.commissionPercent = 0.001f;
-        cfg.costs.slippagePercent = 0.0005f;
+        cfg.costs.commissionPercent = 0.001;
+        cfg.costs.slippagePercent = 0.0005;
         cfg.risk.enableStopLoss = true;
-        cfg.risk.stopLossPercent = 0.02f;
+        cfg.risk.stopLossPercent = 0.02;
         cfg.risk.enableTakeProfit = true;
-        cfg.risk.takeProfitPercent = 0.04f;
+        cfg.risk.takeProfitPercent = 0.04;
         cfg.sizing.method = PositionSizing::Method::FixedFraction;
-        cfg.sizing.fixedFraction = 0.1f;
+        cfg.sizing.fixedFraction = 0.1;
         return cfg;
     }
 
     static BacktestConfig zeroCostConfig() {
         BacktestConfig cfg;
-        cfg.costs.commissionPercent = 0.0f;
-        cfg.costs.slippagePercent = 0.0f;
-        cfg.costs.minCommission = 0.0f;
+        cfg.costs.commissionPercent = 0.0;
+        cfg.costs.slippagePercent = 0.0;
+        cfg.costs.minCommission = 0.0;
         return cfg;
     }
 
     static BacktestConfig aggressiveConfig() {
         BacktestConfig cfg;
         cfg.sizing.method = PositionSizing::Method::Kelly;
-        cfg.sizing.kellyFraction = 0.25f;  // Quarter-Kelly
+        cfg.sizing.kellyFraction = 0.25;  // Quarter-Kelly
         cfg.risk.enableStopLoss = true;
-        cfg.risk.stopLossPercent = 0.05f;
-        cfg.sizing.maxPositionSize = 0.5f;
+        cfg.risk.stopLossPercent = 0.05;
+        cfg.sizing.maxPositionSize = 0.5;
         return cfg;
     }
 };

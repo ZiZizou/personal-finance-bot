@@ -11,22 +11,22 @@ class MeanReversionStrategy : public StrategyBase {
 private:
     // Strategy parameters
     int rsiPeriod_ = 14;
-    float rsiBuyThreshold_ = 30.0f;
-    float rsiSellThreshold_ = 70.0f;
+    double rsiBuyThreshold_ = 30.0;
+    double rsiSellThreshold_ = 70.0;
     int bbPeriod_ = 20;
-    float bbMultiplier_ = 2.0f;
+    double bbMultiplier_ = 2.0;
     bool useAdaptiveRSI_ = false;
-    float atrMultiplierForStop_ = 2.0f;
+    double atrMultiplierForStop_ = 2.0;
 
 public:
     MeanReversionStrategy()
         : StrategyBase("MeanReversion", 60) {
         // Define optimizable parameters
-        addParam("rsiPeriod", 14.0f, 7.0f, 28.0f, 1.0f);
-        addParam("rsiBuyThreshold", 30.0f, 20.0f, 40.0f, 5.0f);
-        addParam("rsiSellThreshold", 70.0f, 60.0f, 80.0f, 5.0f);
-        addParam("bbPeriod", 20.0f, 10.0f, 30.0f, 5.0f);
-        addParam("bbMultiplier", 2.0f, 1.5f, 3.0f, 0.25f);
+        addParam("rsiPeriod", 14.0, 7.0, 28.0, 1.0);
+        addParam("rsiBuyThreshold", 30.0, 20.0, 40.0, 5.0);
+        addParam("rsiSellThreshold", 70.0, 60.0, 80.0, 5.0);
+        addParam("bbPeriod", 20.0, 10.0, 30.0, 5.0);
+        addParam("bbMultiplier", 2.0, 1.5, 3.0, 0.25);
     }
 
     StrategySignal generateSignal(const std::vector<Candle>& history, size_t idx) override {
@@ -35,32 +35,32 @@ public:
         }
 
         // Extract close prices
-        std::vector<float> closes;
+        std::vector<double> closes;
         for (const auto& c : history) closes.push_back(c.close);
 
         // Calculate indicators
         BollingerBands bb = computeBollingerBands(closes, bbPeriod_, bbMultiplier_);
-        float rsi = useAdaptiveRSI_ ?
+        double rsi = useAdaptiveRSI_ ?
                     computeAdaptiveRSI(closes, rsiPeriod_) :
                     computeRSI(closes, rsiPeriod_);
-        float current = closes.back();
+        double current = closes.back();
 
         // Calculate ATR for stop-loss placement
-        float atr = computeATR(history, 14);
+        double atr = computeATR(history, 14);
 
         // Mean Reversion Logic
         // Buy conditions: Oversold
         if (rsi < rsiBuyThreshold_ || current < bb.lower) {
-            float strength = 0.5f;
+            double strength = 0.5;
 
             // Stronger signal if both conditions met
             if (rsi < rsiBuyThreshold_ && current < bb.lower) {
-                strength = 0.8f;
+                strength = 0.8;
             }
 
             // Very strong if extremely oversold
-            if (rsi < 20.0f) {
-                strength = 1.0f;
+            if (rsi < 20.0) {
+                strength = 1.0;
             }
 
             StrategySignal sig = StrategySignal::buy(strength,
@@ -76,14 +76,14 @@ public:
 
         // Sell conditions: Overbought
         if (rsi > rsiSellThreshold_ || current > bb.upper) {
-            float strength = 0.5f;
+            double strength = 0.5;
 
             if (rsi > rsiSellThreshold_ && current > bb.upper) {
-                strength = 0.8f;
+                strength = 0.8;
             }
 
-            if (rsi > 80.0f) {
-                strength = 1.0f;
+            if (rsi > 80.0) {
+                strength = 1.0;
             }
 
             StrategySignal sig = StrategySignal::sell(strength,
@@ -123,23 +123,23 @@ protected:
 public:
     // Setters for direct configuration
     void setRSIPeriod(int period) { rsiPeriod_ = period; }
-    void setRSIThresholds(float buy, float sell) {
+    void setRSIThresholds(double buy, double sell) {
         rsiBuyThreshold_ = buy;
         rsiSellThreshold_ = sell;
     }
-    void setBollingerParams(int period, float multiplier) {
+    void setBollingerParams(int period, double multiplier) {
         bbPeriod_ = period;
         bbMultiplier_ = multiplier;
     }
     void setUseAdaptiveRSI(bool use) { useAdaptiveRSI_ = use; }
-    void setATRStopMultiplier(float mult) { atrMultiplierForStop_ = mult; }
+    void setATRStopMultiplier(double mult) { atrMultiplierForStop_ = mult; }
 };
 
 // Enhanced Mean Reversion with additional filters
 class EnhancedMeanReversionStrategy : public MeanReversionStrategy {
 private:
     bool useVolumeFilter_ = true;
-    float volumeThreshold_ = 1.2f;  // Volume > 120% of average
+    double volumeThreshold_ = 1.2;  // Volume > 120% of average
     bool useTrendFilter_ = true;
     int trendMAPeriod_ = 50;
 
@@ -147,8 +147,8 @@ public:
     EnhancedMeanReversionStrategy() {
         name_ = "EnhancedMeanReversion";
         warmupPeriod_ = 100;
-        addParam("volumeThreshold", 1.2f, 1.0f, 2.0f, 0.1f);
-        addParam("trendMAPeriod", 50.0f, 20.0f, 100.0f, 10.0f);
+        addParam("volumeThreshold", 1.2, 1.0, 2.0, 0.1);
+        addParam("trendMAPeriod", 50.0, 20.0, 100.0, 10.0);
     }
 
     StrategySignal generateSignal(const std::vector<Candle>& history, size_t idx) override {
@@ -161,36 +161,36 @@ public:
 
         // Apply volume filter
         if (useVolumeFilter_ && history.size() >= 20) {
-            long long avgVolume = 0;
+            int64_t avgVolume = 0;
             for (size_t i = history.size() - 20; i < history.size(); ++i) {
                 avgVolume += history[i].volume;
             }
             avgVolume /= 20;
 
-            long long currentVolume = history.back().volume;
-            if (currentVolume < avgVolume * volumeThreshold_) {
+            int64_t currentVolume = history.back().volume;
+            if (currentVolume < static_cast<int64_t>(avgVolume * volumeThreshold_)) {
                 return StrategySignal::hold("Volume filter: insufficient volume confirmation");
             }
         }
 
         // Apply trend filter (don't buy in downtrend, don't sell in uptrend)
         if (useTrendFilter_ && history.size() >= (size_t)trendMAPeriod_) {
-            float maSum = 0.0f;
+            double maSum = 0.0;
             for (size_t i = history.size() - trendMAPeriod_; i < history.size(); ++i) {
                 maSum += history[i].close;
             }
-            float ma = maSum / trendMAPeriod_;
-            float current = history.back().close;
+            double ma = maSum / trendMAPeriod_;
+            double current = history.back().close;
 
             // In uptrend: only take buy signals
             if (current > ma && baseSig.type == SignalType::Sell) {
-                baseSig.strength *= 0.5f;  // Reduce sell signal strength in uptrend
+                baseSig.strength *= 0.5;  // Reduce sell signal strength in uptrend
                 baseSig.reason += " (reduced: uptrend)";
             }
 
             // In downtrend: only take sell signals
             if (current < ma && baseSig.type == SignalType::Buy) {
-                baseSig.strength *= 0.5f;  // Reduce buy signal strength in downtrend
+                baseSig.strength *= 0.5;  // Reduce buy signal strength in downtrend
                 baseSig.reason += " (reduced: downtrend)";
             }
         }

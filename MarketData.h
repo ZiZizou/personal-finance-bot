@@ -1,26 +1,29 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <chrono>
+#include "TimeUtils.h"
 
 struct Candle {
-    std::string date;
-    float open;
-    float high;
-    float low;
-    float close;
-    long long volume;
+    TimePoint ts;       // Timestamp as chrono time_point
+    std::string date;   // Kept for backward compatibility during transition
+    double open;
+    double high;
+    double low;
+    double close;
+    int64_t volume;
 };
 
 struct Fundamentals {
-    float pe_ratio;      
-    float market_cap;    
-    float fifty_day_avg; 
-    bool valid;          
+    double pe_ratio;
+    double market_cap;
+    double fifty_day_avg;
+    bool valid;
 };
 
 struct OnChainData {
-    float net_inflow;      // Exchange Net Flow
-    float large_tx_count;  // Whale transactions
+    double net_inflow;      // Exchange Net Flow
+    double large_tx_count;  // Whale transactions
     bool valid;
 };
 

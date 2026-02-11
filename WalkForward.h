@@ -21,40 +21,40 @@ struct WFWindowResult {
     std::vector<StrategyParams> optimizedParams;
     BacktestResult trainResult;
     BacktestResult testResult;
-    float efficiency;  // Test performance / Train performance
+    double efficiency;  // Test performance / Train performance
 };
 
 // Complete walk-forward analysis result
 struct WalkForwardResult {
     std::vector<WFWindowResult> windowResults;
     BacktestResult aggregateResult;
-    float walkForwardEfficiency;     // Average test/train ratio
-    float robustnessScore;           // How consistent are results across windows
+    double walkForwardEfficiency;     // Average test/train ratio
+    double robustnessScore;           // How consistent are results across windows
     std::vector<StrategyParams> bestParams;
 
     bool isRobust() const {
         // Consider robust if efficiency > 0.5 and robustness > 0.6
-        return walkForwardEfficiency > 0.5f && robustnessScore > 0.6f;
+        return walkForwardEfficiency > 0.5 && robustnessScore > 0.6;
     }
 };
 
 // Parameter grid for optimization
 struct ParameterGrid {
     std::string name;
-    float minValue;
-    float maxValue;
-    float step;
+    double minValue;
+    double maxValue;
+    double step;
 
-    std::vector<float> generateValues() const {
-        std::vector<float> values;
-        for (float v = minValue; v <= maxValue; v += step) {
+    std::vector<double> generateValues() const {
+        std::vector<double> values;
+        for (double v = minValue; v <= maxValue; v += step) {
             values.push_back(v);
         }
         return values;
     }
 
     size_t numValues() const {
-        return (size_t)((maxValue - minValue) / step) + 1;
+        return static_cast<size_t>((maxValue - minValue) / step) + 1;
     }
 };
 
@@ -63,7 +63,7 @@ class WalkForwardOptimizer {
 public:
     struct Config {
         int numWindows = 5;              // Number of rolling windows
-        float trainRatio = 0.7f;         // Portion of each window for training
+        double trainRatio = 0.7;         // Portion of each window for training
         int minTrainBars = 100;          // Minimum training bars
         int minTestBars = 30;            // Minimum test bars
         bool anchoredWalk = false;       // If true, train always starts from beginning
@@ -75,7 +75,7 @@ private:
     BacktestConfig backtestConfig_;
 
     // Optimization objective function
-    float getObjectiveValue(const BacktestResult& result) const {
+    double getObjectiveValue(const BacktestResult& result) const {
         if (config_.optimizationTarget == "sharpe") {
             return result.sharpeRatio;
         } else if (config_.optimizationTarget == "return") {
@@ -154,7 +154,7 @@ public:
         std::vector<std::vector<StrategyParams>> allCombinations;
         generateCombinations(baseParams, paramGrids, 0, allCombinations);
 
-        float bestObjective = -1e9f;
+        double bestObjective = -1e18;
         std::vector<StrategyParams> bestParams = baseParams;
 
         Backtester backtester(backtestConfig_);
@@ -165,7 +165,7 @@ public:
             strategyClone->setParameters(paramSet);
 
             BacktestResult result = backtester.run(trainData, *strategyClone);
-            float objective = getObjectiveValue(result);
+            double objective = getObjectiveValue(result);
 
             if (objective > bestObjective) {
                 bestObjective = objective;
@@ -191,8 +191,8 @@ public:
         }
 
         Backtester backtester(backtestConfig_);
-        std::vector<float> efficiencies;
-        std::vector<float> testReturns;
+        std::vector<double> efficiencies;
+        std::vector<double> testReturns;
 
         // Process each window
         for (const auto& window : windows) {
@@ -219,13 +219,13 @@ public:
             wfResult.testResult = backtester.run(testData, strategy);
 
             // Calculate efficiency
-            float trainObj = getObjectiveValue(wfResult.trainResult);
-            float testObj = getObjectiveValue(wfResult.testResult);
+            double trainObj = getObjectiveValue(wfResult.trainResult);
+            double testObj = getObjectiveValue(wfResult.testResult);
 
-            if (std::abs(trainObj) > 1e-6f) {
+            if (std::abs(trainObj) > 1e-12) {
                 wfResult.efficiency = testObj / trainObj;
             } else {
-                wfResult.efficiency = 0.0f;
+                wfResult.efficiency = 0.0;
             }
 
             efficiencies.push_back(wfResult.efficiency);
@@ -236,29 +236,29 @@ public:
 
         // Calculate aggregate metrics
         result.walkForwardEfficiency = std::accumulate(efficiencies.begin(),
-            efficiencies.end(), 0.0f) / efficiencies.size();
+            efficiencies.end(), 0.0) / efficiencies.size();
 
         // Robustness: how consistent are the test returns
-        float meanReturn = std::accumulate(testReturns.begin(),
-            testReturns.end(), 0.0f) / testReturns.size();
-        float variance = 0.0f;
-        for (float r : testReturns) {
+        double meanReturn = std::accumulate(testReturns.begin(),
+            testReturns.end(), 0.0) / testReturns.size();
+        double variance = 0.0;
+        for (double r : testReturns) {
             variance += (r - meanReturn) * (r - meanReturn);
         }
         variance /= testReturns.size();
 
         // Robustness score: higher if returns are consistent
-        if (std::abs(meanReturn) > 1e-6f) {
-            float cv = std::sqrt(variance) / std::abs(meanReturn);  // Coefficient of variation
-            result.robustnessScore = 1.0f / (1.0f + cv);  // Transform to 0-1 scale
+        if (std::abs(meanReturn) > 1e-12) {
+            double cv = std::sqrt(variance) / std::abs(meanReturn);  // Coefficient of variation
+            result.robustnessScore = 1.0 / (1.0 + cv);  // Transform to 0-1 scale
         } else {
-            result.robustnessScore = 0.0f;
+            result.robustnessScore = 0.0;
         }
 
         // Use parameters from the best window for final params
-        float bestOOSPerformance = -1e9f;
+        double bestOOSPerformance = -1e18;
         for (const auto& wr : result.windowResults) {
-            float perf = getObjectiveValue(wr.testResult);
+            double perf = getObjectiveValue(wr.testResult);
             if (perf > bestOOSPerformance) {
                 bestOOSPerformance = perf;
                 result.bestParams = wr.optimizedParams;
@@ -286,7 +286,7 @@ private:
         const auto& grid = grids[gridIdx];
         auto values = grid.generateValues();
 
-        for (float val : values) {
+        for (double val : values) {
             // Find and update the parameter
             for (auto& param : current) {
                 if (param.name == grid.name) {
@@ -300,40 +300,40 @@ private:
 
     void calculateAggregateResult(WalkForwardResult& result) {
         // Combine metrics from all test windows
-        float totalReturn = 1.0f;
+        double totalReturn = 1.0;
         int totalTrades = 0;
         int totalWins = 0;
-        std::vector<float> allReturns;
+        std::vector<double> allReturns;
 
         for (const auto& wr : result.windowResults) {
-            totalReturn *= (1.0f + wr.testResult.totalReturn);
+            totalReturn *= (1.0 + wr.testResult.totalReturn);
             totalTrades += wr.testResult.trades;
             totalWins += wr.testResult.wins;
 
-            for (float r : wr.testResult.dailyReturns) {
+            for (double r : wr.testResult.dailyReturns) {
                 allReturns.push_back(r);
             }
         }
 
-        result.aggregateResult.totalReturn = totalReturn - 1.0f;
+        result.aggregateResult.totalReturn = totalReturn - 1.0;
         result.aggregateResult.trades = totalTrades;
         result.aggregateResult.wins = totalWins;
         result.aggregateResult.winRate = totalTrades > 0 ?
-            (float)totalWins / totalTrades : 0.0f;
+            static_cast<double>(totalWins) / totalTrades : 0.0;
 
         // Calculate Sharpe from combined returns
         if (allReturns.size() > 1) {
-            float mean = std::accumulate(allReturns.begin(),
-                allReturns.end(), 0.0f) / allReturns.size();
-            float variance = 0.0f;
-            for (float r : allReturns) {
+            double mean = std::accumulate(allReturns.begin(),
+                allReturns.end(), 0.0) / allReturns.size();
+            double variance = 0.0;
+            for (double r : allReturns) {
                 variance += (r - mean) * (r - mean);
             }
             variance /= (allReturns.size() - 1);
-            float stdDev = std::sqrt(variance);
+            double stdDev = std::sqrt(variance);
 
-            if (stdDev > 1e-9f) {
-                result.aggregateResult.sharpeRatio = (mean / stdDev) * std::sqrt(252.0f);
+            if (stdDev > 1e-12) {
+                result.aggregateResult.sharpeRatio = (mean / stdDev) * std::sqrt(252.0);
             }
         }
     }
@@ -343,10 +343,10 @@ private:
 class MonteCarloValidator {
 public:
     struct Result {
-        float meanReturn;
-        float stdReturn;
-        float probability95;   // P(return > 0) at 95% confidence
-        std::vector<float> returnDistribution;
+        double meanReturn;
+        double stdReturn;
+        double probability95;   // P(return > 0) at 95% confidence
+        std::vector<double> returnDistribution;
     };
 
     static Result validate(
@@ -354,7 +354,7 @@ public:
         const std::vector<Candle>& data,
         const BacktestConfig& config,
         int numSimulations = 100,
-        float noiseLevel = 0.001f) {
+        double noiseLevel = 0.001) {
 
         Result result;
         result.returnDistribution.reserve(numSimulations);
@@ -374,35 +374,35 @@ public:
 
         // Calculate statistics
         result.meanReturn = std::accumulate(result.returnDistribution.begin(),
-            result.returnDistribution.end(), 0.0f) / numSimulations;
+            result.returnDistribution.end(), 0.0) / numSimulations;
 
-        float variance = 0.0f;
-        for (float r : result.returnDistribution) {
+        double variance = 0.0;
+        for (double r : result.returnDistribution) {
             variance += (r - result.meanReturn) * (r - result.meanReturn);
         }
         result.stdReturn = std::sqrt(variance / numSimulations);
 
         // Sort for percentile calculation
-        std::vector<float> sorted = result.returnDistribution;
+        std::vector<double> sorted = result.returnDistribution;
         std::sort(sorted.begin(), sorted.end());
 
         // 5th percentile (95% confidence lower bound)
-        size_t idx5 = (size_t)(0.05f * sorted.size());
+        size_t idx5 = static_cast<size_t>(0.05 * sorted.size());
         result.probability95 = sorted[idx5];
 
         return result;
     }
 
 private:
-    static std::vector<Candle> addNoise(const std::vector<Candle>& data, float level) {
+    static std::vector<Candle> addNoise(const std::vector<Candle>& data, double level) {
         std::vector<Candle> noisy = data;
 
         for (auto& c : noisy) {
-            float noise = ((float)rand() / RAND_MAX - 0.5f) * 2.0f * level;
-            c.close *= (1.0f + noise);
-            c.open *= (1.0f + noise * 0.8f);
-            c.high *= (1.0f + noise * 1.1f);
-            c.low *= (1.0f + noise * 0.9f);
+            double noise = (static_cast<double>(rand()) / RAND_MAX - 0.5) * 2.0 * level;
+            c.close *= (1.0 + noise);
+            c.open *= (1.0 + noise * 0.8);
+            c.high *= (1.0 + noise * 1.1);
+            c.low *= (1.0 + noise * 0.9);
 
             // Ensure OHLC consistency
             c.high = std::max({c.open, c.close, c.high});
