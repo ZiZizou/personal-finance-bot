@@ -121,11 +121,90 @@ def get_sentiment_from_api(symbol):
         return None
 
 
+def get_discover_from_api():
+    """
+    Fetch trending sectors and laggard stocks from Python API.
+
+    Returns:
+        Discovery dict or None if API unavailable
+    """
+    try:
+        url = f"{PYTHON_API_URL}/api/discover"
+        response = requests.get(url, timeout=PYTHON_API_TIMEOUT)
+
+        if response.status_code == 200:
+            return response.json()
+        return None
+
+    except Exception:
+        return None
+
+
+def format_discover_message(data):
+    """
+    Format discovery data as a readable sector heatmap message.
+
+    Args:
+        data: Discovery response from API
+
+    Returns:
+        Formatted Markdown string
+    """
+    if not data or "sectors" not in data:
+        return "⚠️ No discovery data available"
+
+    sectors = data.get("sectors", [])
+    if not sectors:
+        return "📊 No trending sectors found in the last 48 hours.\n\nRun /scrape to fetch latest news!"
+
+    msg = "🔥 <b>SECTOR HEATMAP</b> - Last 48h\n\n"
+    msg += "<i>Trending industries with promising news</i>\n\n"
+
+    for i, sector in enumerate(sectors, 1):
+        industry = sector.get("industry", "Unknown")
+        sentiment = sector.get("avg_sentiment", 0)
+        article_count = sector.get("article_count", 0)
+        tickers = sector.get("tickers", [])
+        laggard = sector.get("laggard")
+
+        # Sentiment emoji
+        if sentiment >= 0.5:
+            emoji = "🟢"
+        elif sentiment >= 0.2:
+            emoji = "🟡"
+        elif sentiment >= 0:
+            emoji = "⚪"
+        else:
+            emoji = "🔴"
+
+        msg += f"{emoji} <b>{industry}</b>\n"
+        msg += f"   Sentiment: {sentiment:+.2f} | Articles: {article_count}\n"
+
+        if tickers:
+            ticker_str = ", ".join(tickers[:5])
+            if len(tickers) > 5:
+                ticker_str += f" +{len(tickers) - 5} more"
+            msg += f"   Tickers: {ticker_str}\n"
+
+        if laggard:
+            msg += f"   🎯 Laggard: {laggard}\n"
+
+        msg += "\n"
+
+    msg += "<i>Tip: Laggard stocks may be sympathy plays waiting to catch up!</i>"
+    return msg
+
+
 # ============== Configuration ==============
 TOKEN = os.environ.get("STOCK_TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = os.environ.get("STOCK_TELEGRAM_CHAT_ID", "")
 TICKERS_FILE = "tickers.csv"
 LIVE_SIGNALS_FILE = "live_signals.csv"
+PORTFOLIO_CSV = "C:\\Users\\Atharva\\Documents\\Trading_super\\Trading_Python\\data\\portfolio.csv"
+
+# Trade signals pending human acceptance
+_pending_trades = {}
+
 TRADING_BOT_PATH = "C:\\Users\\Atharva\\Documents\\Trading_super\\Trading_cpp\\trading_bot_tech_analysis.exe"
 
 # Python API configuration
@@ -346,19 +425,22 @@ def get_cpp_env():
 
     return env
 
-def send_message(text):
-    """Send a message to Telegram"""
+def send_message(text, reply_markup=None):
+    """Send a message to Telegram, optionally with inline keyboard buttons"""
     if not text:
         return
-        
+
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     data = {
         "chat_id": CHAT_ID,
         "text": text,
         "parse_mode": "HTML"
     }
+    if reply_markup:
+        data["reply_markup"] = reply_markup
+
     try:
-        response = requests.post(url, data=data, timeout=10)
+        response = requests.post(url, json=data, timeout=10)
         res_data = response.json()
         if not res_data.get("ok"):
             print(f"Telegram API Error: {res_data.get('description', 'Unknown error')}")
@@ -366,7 +448,7 @@ def send_message(text):
             if "can't parse entities" in res_data.get('description', ''):
                 print("Retrying as plain text...")
                 data.pop("parse_mode")
-                requests.post(url, data=data, timeout=10)
+                requests.post(url, json=data, timeout=10)
     except Exception as e:
         print(f"Error sending message: {e}")
 
@@ -387,6 +469,58 @@ def get_updates():
     except Exception as e:
         print(f"Error getting updates: {e}")
     return []
+
+
+def handle_callback_query(callback_query):
+    """Handle inline keyboard button callbacks (Accept/Reject trades)"""
+    global _pending_trades
+
+    callback_id = callback_query.get('id', '')
+    data = callback_query.get('data', '')
+
+    if not data:
+        return
+
+    # Parse callback data
+    if data.startswith('accept_'):
+        trade_id = data[7:]
+        if trade_id in _pending_trades:
+            trade_data = _pending_trades[trade_id]
+            success, message = execute_trade_via_api(trade_id, "buy")
+            if success:
+                send_message(f"✅ Trade ACCEPTED: {message}")
+            else:
+                send_message(f"⚠️ Trade execution failed: {message}")
+        else:
+            send_message("⚠️ Trade not found or already processed")
+        # Answer callback
+        answer_callback(callback_id)
+
+    elif data.startswith('reject_'):
+        trade_id = data[7:]
+        if trade_id in _pending_trades:
+            trade_data = _pending_trades[trade_id]
+            ticker = trade_data.get('ticker', 'UNKNOWN')
+            del _pending_trades[trade_id]
+            send_message(f"❌ Trade REJECTED: {ticker}")
+        else:
+            send_message("⚠️ Trade not found or already processed")
+        # Answer callback
+        answer_callback(callback_id)
+
+
+def answer_callback(callback_id, text="OK"):
+    """Answer a callback query"""
+    url = f"https://api.telegram.org/bot{TOKEN}/answerCallbackQuery"
+    data = {
+        "callback_query_id": callback_id,
+        "text": text
+    }
+    try:
+        requests.post(url, json=data, timeout=10)
+    except Exception as e:
+        print(f"Error answering callback: {e}")
+
 
 def load_tickers():
     """Load tickers from CSV file"""
@@ -447,6 +581,253 @@ def list_tickers():
     if count > 20:
         ticker_list += f"\n... and {count - 20} more"
     return f"📋 Watchlist ({count} tickers):\n{ticker_list}"
+
+# ============== Portfolio Management Functions ==============
+
+def load_portfolio():
+    """Load portfolio from CSV file"""
+    positions = []
+    if not os.path.exists(PORTFOLIO_CSV):
+        return positions
+    try:
+        with open(PORTFOLIO_CSV, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                positions.append({
+                    'Ticker': row.get('Ticker', ''),
+                    'Shares': float(row.get('Shares', 0)),
+                    'AvgCost': float(row.get('AvgCost', 0)),
+                    'Currency': row.get('Currency', 'USD')
+                })
+    except Exception as e:
+        print(f"Error loading portfolio: {e}")
+    return positions
+
+
+def save_portfolio(positions):
+    """Save portfolio to CSV file"""
+    try:
+        with open(PORTFOLIO_CSV, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=['Ticker', 'Shares', 'AvgCost', 'Currency'])
+            writer.writeheader()
+            for pos in positions:
+                writer.writerow(pos)
+        return True
+    except Exception as e:
+        print(f"Error saving portfolio: {e}")
+        return False
+
+
+def get_portfolio():
+    """Get formatted portfolio display"""
+    positions = load_portfolio()
+
+    if not positions:
+        return "📊 Portfolio is empty\n\nUse /add_pos TICKER SHARES PRICE to add positions"
+
+    # Filter to only positions with shares > 0
+    active_positions = [p for p in positions if p['Shares'] > 0]
+
+    if not active_positions:
+        return "📊 Portfolio is empty\n\nUse /add_pos TICKER SHARES PRICE to add positions"
+
+    # Calculate totals
+    total_cad = sum(p['Shares'] * p['AvgCost'] for p in active_positions if p['Currency'] == 'CAD')
+    total_usd = sum(p['Shares'] * p['AvgCost'] for p in active_positions if p['Currency'] == 'USD')
+
+    msg = "📊 <b>TFSA Portfolio</b>\n\n"
+    msg += "<b>Holdings:</b>\n"
+
+    for p in sorted(active_positions, key=lambda x: x['Ticker']):
+        ticker = p['Ticker']
+        shares = p['Shares']
+        cost = p['AvgCost']
+        currency = p['Currency']
+        value = shares * cost
+        msg += f"• {ticker}: {shares:.2f} shares @ {currency} {cost:.2f} = {currency} {value:.2f}\n"
+
+    msg += f"\n<b>Total CAD:</b> ${total_cad:.2f}"
+    msg += f"\n<b>Total USD:</b> ${total_usd:.2f}"
+
+    return msg
+
+
+def add_position(ticker, shares, price):
+    """Add or update a position in portfolio"""
+    ticker = ticker.upper().strip()
+    shares = float(shares)
+    price = float(price)
+
+    if shares <= 0:
+        return f"⚠️ Shares must be positive"
+
+    positions = load_portfolio()
+
+    # Determine currency based on ticker
+    currency = "USD"
+    if ticker.endswith('.TO') or ticker.endswith('.V'):
+        currency = "CAD"
+
+    # Check if position exists
+    existing_idx = None
+    for i, p in enumerate(positions):
+        if p['Ticker'].upper() == ticker:
+            existing_idx = i
+            break
+
+    if existing_idx is not None:
+        # Update existing position
+        existing = positions[existing_idx]
+        old_shares = existing['Shares']
+        old_cost = existing['AvgCost']
+
+        # Calculate new average cost
+        total_cost = (old_shares * old_cost) + (shares * price)
+        new_shares = old_shares + shares
+        new_avg_cost = total_cost / new_shares if new_shares > 0 else 0
+
+        positions[existing_idx]['Shares'] = new_shares
+        positions[existing_idx]['AvgCost'] = new_avg_cost
+        positions[existing_idx]['Currency'] = currency
+
+        save_portfolio(positions)
+        return f"✅ Updated {ticker}: {new_shares:.2f} shares @ avg {currency} {new_avg_cost:.2f}"
+    else:
+        # Add new position
+        positions.append({
+            'Ticker': ticker,
+            'Shares': shares,
+            'AvgCost': price,
+            'Currency': currency
+        })
+        save_portfolio(positions)
+        return f"✅ Added {ticker}: {shares:.2f} shares @ {currency} {price:.2f}"
+
+
+def remove_position(ticker):
+    """Remove a position from portfolio (set shares to 0)"""
+    ticker = ticker.upper().strip()
+    positions = load_portfolio()
+
+    original_len = len(positions)
+    positions = [p for p in positions if p['Ticker'].upper() != ticker]
+
+    if len(positions) == original_len:
+        return f"⚠️ {ticker} not found in portfolio"
+
+    save_portfolio(positions)
+    return f"✅ Removed {ticker} from portfolio"
+
+
+def execute_trade_via_api(trade_id: str, action: str):
+    """Execute a trade via Python API"""
+    global _pending_trades
+
+    if trade_id not in _pending_trades:
+        return False, "Trade not found or already processed"
+
+    trade_data = _pending_trades[trade_id]
+    ticker = trade_data['ticker']
+    shares = trade_data.get('shares', 1)
+
+    try:
+        url = f"{PYTHON_API_URL}/api/portfolio/execute/{trade_id}"
+        payload = {
+            "ticker": ticker,
+            "action": action,  # "buy" or "sell"
+            "shares": shares
+        }
+        response = requests.post(url, json=payload, timeout=PYTHON_API_TIMEOUT)
+
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('success'):
+                # Remove from pending
+                del _pending_trades[trade_id]
+                return True, result.get('message', 'Trade executed')
+            else:
+                return False, result.get('message', 'Trade failed')
+        else:
+            return False, f"API error: {response.status_code}"
+    except Exception as e:
+        return False, f"Error: {str(e)}"
+
+
+def send_trade_signal(ticker, signal_type, expected_return, current_price, reason, currency="USD"):
+    """Send a trade signal with Accept/Reject inline buttons"""
+    global _pending_trades
+
+    import uuid
+    trade_id = str(uuid.uuid4())[:8]
+
+    # Store pending trade
+    _pending_trades[trade_id] = {
+        'ticker': ticker,
+        'signal_type': signal_type,
+        'expected_return': expected_return,
+        'price': current_price,
+        'reason': reason,
+        'currency': currency,
+        'shares': 1  # Default share count
+    }
+
+    # Format message with SHAP-like reasoning
+    msg = f"🚨 <b>{signal_type.upper()} SIGNAL: {ticker}</b>\n\n"
+    msg += f"Expected Return: {expected_return:+.1f}% "
+    if currency == "USD":
+        msg += "(Clears USD FX Hurdle)\n"
+    else:
+        msg += "(CAD - No FX fee)\n"
+    msg += f"Current Price: {currency} {current_price:.2f}\n"
+
+    if reason:
+        msg += f"\n🧠 Model Rationale:\n{reason}\n"
+
+    # Create inline keyboard with Accept/Reject buttons
+    # We'll send this via send_message with reply_markup
+    return msg, trade_id
+
+
+def send_message_with_buttons(text, trade_id=None):
+    """Send a message with optional inline keyboard buttons"""
+    if not text:
+        return
+
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+
+    if trade_id:
+        # Add Accept/Reject inline keyboard
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ ACCEPT", callback_data=f"accept_{trade_id}"),
+                InlineKeyboardButton("❌ REJECT", callback_data=f"reject_{trade_id}")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        data = {
+            "chat_id": CHAT_ID,
+            "text": text,
+            "parse_mode": "HTML",
+            "reply_markup": reply_markup
+        }
+    else:
+        data = {
+            "chat_id": CHAT_ID,
+            "text": text,
+            "parse_mode": "HTML"
+        }
+
+    try:
+        response = requests.post(url, json=data, timeout=10)
+        res_data = response.json()
+        if not res_data.get("ok"):
+            print(f"Telegram API Error: {res_data.get('description', 'Unknown error')}")
+    except Exception as e:
+        print(f"Error sending message: {e}")
+
 
 def get_all_signals():
     """Get latest signals from live_signals.csv - returns only the most recent entry per symbol"""
@@ -1291,6 +1672,12 @@ def process_command(text):
 /sentiment - Show market sentiment
 /news - Show latest stock news
 /pairs - Show pairs trading opportunities
+/discover - Sector heatmap with laggard plays
+
+💼 Portfolio Commands:
+/portfolio - Show current holdings
+/add_pos TICKER SHARES PRICE - Add/update position
+/remove_pos TICKER - Remove position from portfolio
 
 🔧 Ticker Selection (for training):
 /selected - Show current ticker selection
@@ -1386,6 +1773,37 @@ def process_command(text):
     elif text == "/signals" or text == "/status":
         return analyze_signals_status()
 
+    elif text == "/discover" or text == "/heatmap":
+        send_message("🔍 Discovering trending sectors...")
+        data = get_discover_from_api()
+        if data:
+            return format_discover_message(data)
+        else:
+            return "⚠️ Could not fetch discovery data. Make sure Python API is running."
+
+    # Portfolio commands
+    elif text == "/portfolio" or text == "/port":
+        return get_portfolio()
+
+    elif text.startswith("/add_pos ") or text.startswith("/addpos "):
+        parts = text.split()
+        if len(parts) >= 4:
+            ticker = parts[1].upper()
+            try:
+                shares = float(parts[2])
+                price = float(parts[3])
+                return add_position(ticker, shares, price)
+            except ValueError:
+                return "⚠️ Invalid format. Usage: /add_pos TICKER SHARES PRICE\nExample: /add_pos NVDA 10 450.50"
+        return "⚠️ Usage: /add_pos TICKER SHARES PRICE\nExample: /add_pos NVDA 10 450.50"
+
+    elif text.startswith("/remove_pos ") or text.startswith("/removepos ") or text.startswith("/rm_pos "):
+        parts = text.split()
+        if len(parts) >= 2:
+            ticker = parts[1].upper()
+            return remove_position(ticker)
+        return "⚠️ Usage: /remove_pos TICKER\nExample: /remove_pos NVDA"
+
     else:
         return f"Unknown command: {text}\nUse /help for available commands"
 
@@ -1476,7 +1894,7 @@ def main():
     print("="*50 + "\n")
 
     scraper_status = "✅" if SCRAPER_AVAILABLE else "⚠️"
-    send_message(f"✅ Telegram Listener started!\n\nCommands:\n/add SYMBOL - Add ticker\n/remove SYMBOL - Remove ticker\n/analyze SYMBOL - Get last analysis\n/fundamentals SYMBOL - Get fundamental data\n/run - Run trading bot now\n/list - Show all tickers\n/signals - Show all signal statuses\n/sentiment - Market sentiment {scraper_status}\n/news - Stock news {scraper_status}\n/pairs - Pairs trading opportunities\n/help - Show help\n\nPolling every 2.5 minutes!")
+    send_message(f"✅ Telegram Listener started!\n\nCommands:\n/add SYMBOL - Add ticker\n/remove SYMBOL - Remove ticker\n/analyze SYMBOL - Get last analysis\n/fundamentals SYMBOL - Get fundamental data\n/run - Run trading bot now\n/list - Show all tickers\n/signals - Show all signal statuses\n/sentiment - Market sentiment {scraper_status}\n/news - Stock news {scraper_status}\n/pairs - Pairs trading opportunities\n\n💼 Portfolio:\n/portfolio - Show holdings\n/add_pos T S P - Add position\n/remove_pos T - Remove position\n\n/help - Show all commands\n\nPolling every 2.5 minutes!")
 
     while True:
         try:
@@ -1499,6 +1917,15 @@ def main():
 
                                 response = process_command(text)
                                 send_message(response)
+
+                    # Handle callback queries (inline button presses)
+                    elif "callback_query" in update:
+                        callback_query = update["callback_query"]
+                        if "chat" in callback_query:
+                            chat_id = str(callback_query["chat"]["id"])
+                            if chat_id == CHAT_ID:
+                                print(f"Received callback: {callback_query.get('data', '')}")
+                                handle_callback_query(callback_query)
 
             # Poll every 5 minutes (300 seconds)
             time.sleep(150)

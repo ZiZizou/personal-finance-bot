@@ -3,6 +3,7 @@
 
 import os
 import sys
+import sqlite3
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Query, HTTPException
@@ -300,3 +301,170 @@ async def get_batch_sentiment(
         "timestamp": datetime.now().isoformat(),
         "count": len(sentiments)
     }
+
+
+# ============== Discovery Pipeline ==============
+
+def find_underappreciated_stock(tickers: List[str]) -> Optional[str]:
+    """
+    Find the underappreciated (laggard) stock from a list of tickers.
+
+    Uses yfinance to fetch forward P/E and 5-day returns.
+    Returns the ticker with the lowest 5-day return (hasn't popped yet).
+
+    Args:
+        tickers: List of ticker symbols (max 10 to prevent rate limits)
+
+    Returns:
+        Formatted string: "TICKER (5d return: X.X%, P/E: Y.Y)" or None if error
+    """
+    if not tickers:
+        return None
+
+    # Cap at 10 tickers to prevent rate limits
+    tickers = tickers[:10]
+
+    try:
+        import yfinance as yf
+        import time
+
+        stock_data = []
+
+        for ticker in tickers:
+            try:
+                info = yf.Ticker(ticker).info
+                current_price = info.get("regularMarketPrice", 0)
+                prev_close = info.get("regularMarketPreviousClose", 0)
+                forward_pe = info.get("forwardPE", 0)
+
+                # Calculate 5-day return
+                if current_price > 0 and prev_close > 0:
+                    five_day_return = ((current_price - prev_close) / prev_close) * 100
+                else:
+                    five_day_return = 0
+
+                stock_data.append({
+                    "ticker": ticker,
+                    "five_day_return": five_day_return,
+                    "forward_pe": forward_pe if forward_pe else 0
+                })
+
+                # Space requests to avoid rate limiting
+                time.sleep(0.5)
+
+            except Exception as e:
+                log = get_logger()
+                log.warning(f"Error fetching data for {ticker}: {e}")
+                continue
+
+        if not stock_data:
+            return None
+
+        # Sort by 5-day return ascending (lowest return = hasn't popped yet)
+        stock_data.sort(key=lambda x: x["five_day_return"])
+
+        # Return the laggard (first one with lowest 5-day return)
+        laggard = stock_data[0]
+        pe_str = f"{laggard['forward_pe']:.1f}" if laggard['forward_pe'] else "N/A"
+        return f"{laggard['ticker']} (5d return: {laggard['five_day_return']:+.1f}%, P/E: {pe_str})"
+
+    except Exception as e:
+        log = get_logger()
+        log.warning(f"Error finding underappreciated stock: {e}")
+        return None
+
+
+def discover_trending_sectors() -> Dict[str, Any]:
+    """
+    Discover trending sectors and underappreciated stocks.
+
+    Queries news.db for industries with high density of promising articles
+    in rolling 48-hour window. Groups by industry, calculates avg sentiment
+    and article count. Uses find_underappreciated_stock() to identify laggards.
+
+    Returns:
+        Dict with trending sectors and laggard plays
+    """
+    try:
+        db = NewsDatabase(NEWS_DB_PATH)
+        cutoff = (datetime.now() - timedelta(hours=48)).isoformat()
+
+        conn = sqlite3.connect(db.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Query industries with promising articles in last 48 hours
+        cursor.execute("""
+            SELECT
+                industry,
+                COUNT(*) as article_count,
+                AVG(score) as avg_score,
+                GROUP_CONCAT(DISTINCT ticker) as tickers
+            FROM articles
+            WHERE published_date >= ?
+              AND classification = 'promising'
+              AND industry IS NOT NULL
+              AND industry != ''
+            GROUP BY industry
+            HAVING COUNT(*) >= 1
+            ORDER BY avg_score DESC, article_count DESC
+            LIMIT 10
+        """, (cutoff,))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        if not rows:
+            return {"sectors": [], "timestamp": datetime.now().isoformat()}
+
+        sectors = []
+        for row in rows:
+            industry = row["industry"]
+            article_count = row["article_count"]
+            avg_score = row["avg_score"]
+            tickers_str = row["tickers"]
+
+            # Parse tickers from comma-separated string
+            tickers = [t.strip().upper() for t in (tickers_str or "").split(",") if t.strip()]
+
+            # Normalize score to -1 to 1 range
+            normalized_score = max(-1.0, min(1.0, avg_score / 30.0))
+
+            # Find underappreciated stock (laggard)
+            laggard = None
+            if len(tickers) > 1:  # Only find laggard if multiple tickers in sector
+                laggard = find_underappreciated_stock(tickers)
+
+            sectors.append({
+                "industry": industry,
+                "avg_sentiment": round(normalized_score, 2),
+                "article_count": article_count,
+                "tickers": tickers[:10],  # Limit to 10 for display
+                "laggard": laggard
+            })
+
+        return {
+            "sectors": sectors,
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        log = get_logger()
+        log.error(f"Error in discover_trending_sectors: {e}")
+        return {"sectors": [], "error": str(e), "timestamp": datetime.now().isoformat()}
+
+
+@router.get("/discover")
+async def discover():
+    """
+    Discover trending sectors and underappreciated (laggard) stocks.
+
+    Identifies industries with high density of promising articles in the
+    last 48 hours, then finds stocks within those sectors that haven't
+    moved yet (low 5-day return) - potential sympathy play opportunities.
+    """
+    log = get_logger()
+    log.info("Discovering trending sectors and laggard stocks")
+
+    result = discover_trending_sectors()
+    return result

@@ -9,7 +9,7 @@ from .extractor import CompanyExtractor, extract_companies
 from .ticker_resolver import TickerResolver, resolve_ticker
 from .database import NewsDatabase, Article
 from .scraper import NewsScraper
-from .storage import save_to_csv, load_from_csv
+from .storage import save_to_csv, load_from_csv, export_watchlist, export_avoidlist
 
 __all__ = [
     "RSS_SOURCE",
@@ -26,4 +26,6 @@ __all__ = [
     "NewsScraper",
     "save_to_csv",
     "load_from_csv",
+    "export_watchlist",
+    "export_avoidlist",
 ]

@@ -79,7 +79,7 @@ class NewsScraper:
 
         try:
             logger.info(f"Fetching {source.name}...")
-            feed = feedparser.parse(source.url, timeout=10)
+            feed = feedparser.parse(source.url)
 
             for entry in feed.entries[:self.max_articles]:
                 # Parse published date
