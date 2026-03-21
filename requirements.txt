@@ -1,0 +1,58 @@
+# Trading Research Python Environment
+# Setup using: uv venv .venv && uv pip install -r requirements.txt
+
+# Core dependencies
+numpy>=1.24.0,<2.0
+pandas>=2.0.0
+scipy>=1.10.0
+scikit-learn>=1.3.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.18.0
+
+# Microsoft Qlib - AI Quantitative Investment Platform (optional, install separately)
+# qlib ; python_version >= "3.8"
+
+# Reinforcement Learning
+stable-baselines3>=2.0.0
+gymnasium>=0.29.0
+
+# ONNX for model export/import
+onnx>=1.15.0
+onnxruntime>=1.16.0
+skl2onnx>=1.16.0
+
+# Data handling
+yfinance>=0.2.0
+pandas-datareader>=0.10.0
+requests>=2.31.0
+
+# Technical Analysis
+ta-lib>=0.4.28
+# pandas-ta>=0.3.14b0  # Requires Python 3.12+
+
+# Deep Learning
+torch>=2.0.0
+
+# Progress and logging
+tqdm>=4.66.0
+python-dotenv>=1.0.0
+
+# Regime Detection / HMM
+hmmlearn>=0.3.0
+
+# Statistical analysis
+statsmodels>=0.14.0
+arch>=7.0.0
+
+# News Scraping
+feedparser>=6.0.0
+rapidfuzz>=3.0.0
+
+# FastAPI Service
+fastapi>=0.135.0
+uvicorn>=0.41.0
+apscheduler>=3.11.0
+httpx>=0.28.0

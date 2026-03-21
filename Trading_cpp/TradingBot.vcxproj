@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>TradingBot</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LinkIncremental>true</LinkIncremental>
+    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(Platform)\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <LinkIncremental>false</LinkIncremental>
+    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(Platform)\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;ENABLE_CURL;USE_ONNXRUNTIME;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)vendor\eigen;$(ProjectDir)vendor\llama.cpp\include;C:\Users\Atharva\vcpkg\installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/Zc:__cplusplus /utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>C:\Users\Atharva\vcpkg\installed\x64-windows\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>libcurl.lib;onnxruntime.lib;ws2_32.lib;winmm.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;ENABLE_CURL;USE_ONNXRUNTIME;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)vendor\eigen;$(ProjectDir)vendor\llama.cpp\include;C:\Users\Atharva\vcpkg\installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/Zc:__cplusplus /utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <Optimization>MaxSpeed</Optimization>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>C:\Users\Atharva\vcpkg\installed\x64-windows\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>libcurl.lib;onnxruntime.lib;ws2_32.lib;winmm.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="Backtester.cpp" />
+    <ClCompile Include="BlackScholes.cpp" />
+    <ClCompile Include="Broker.cpp" />
+    <ClCompile Include="FinancialSentiment.cpp" />
+    <ClCompile Include="LiveSignals.cpp" />
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="MarketData.cpp" />
+    <ClCompile Include="MLPredictor.cpp" />
+    <ClCompile Include="NetworkUtils.cpp" />
+    <ClCompile Include="NewsManager.cpp" />
+    <ClCompile Include="OrderManager.cpp" />
+    <ClCompile Include="Providers.cpp" />
+    <ClCompile Include="RiskManagement.cpp" />
+    <!-- SentimentAnalyzer.cpp replaced by FinancialSentiment.cpp -->
+    <ClCompile Include="SentimentService.cpp" />
+    <ClCompile Include="TechnicalAnalysis.cpp" />
+    <!-- TelegramListener.cpp is a separate program - not needed for main trading bot -->
+    <ClCompile Include="TelegramNotifier.cpp" />
+    <ClCompile Include="TradingStrategy.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="BacktestConfig.h" />
+    <ClInclude Include="BlackScholes.h" />
+    <ClInclude Include="Broker.h" />
+    <ClInclude Include="CointegrationTests.h" />
+    <ClInclude Include="Config.h" />
+    <ClInclude Include="FinancialSentiment.h" />
+    <ClInclude Include="FundamentalScorer.h" />
+    <ClInclude Include="HiddenMarkovModel.h" />
+    <ClInclude Include="IStrategy.h" />
+    <ClInclude Include="json.hpp" />
+    <ClInclude Include="LiveSignals.h" />
+    <ClInclude Include="MarketClock.h" />
+    <ClInclude Include="MarketData.h" />
+    <ClInclude Include="MLPredictor.h" />
+    <ClInclude Include="NetworkUtils.h" />
+    <ClInclude Include="NewsManager.h" />
+    <ClInclude Include="ONNXInference.h" />
+    <ClInclude Include="ONNXPredictor.h" />
+    <ClInclude Include="OrderManager.h" />
+    <ClInclude Include="Providers.h" />
+    <ClInclude Include="RegimeDetector.h" />
+    <ClInclude Include="ReportGenerator.h" />
+    <ClInclude Include="StatisticalArbitrage.h" />
+    <ClInclude Include="Result.h" />
+    <ClInclude Include="RiskManagement.h" />
+    <ClInclude Include="SentimentAnalyzer.h" />
+    <ClInclude Include="SentimentService.h" />
+    <ClInclude Include="TechnicalAnalysis.h" />
+    <!-- TelegramListener functionality moved to Python (telegram_listener.py) -->
+    <ClInclude Include="TelegramNotifier.h" />
+    <ClInclude Include="TimeUtils.h" />
+    <ClInclude Include="TradingStrategy.h" />
+    <ClInclude Include="VolatilityModels.h" />
+    <ClInclude Include="WalkForward.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
