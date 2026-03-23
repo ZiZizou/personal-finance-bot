@@ -382,3 +382,148 @@ python scripts/run_service.py --no-scheduler
 python scripts/scrape_news.py
 python scripts/train_model.py --ticker NVDA
 ```
+
+---
+
+## Telegram Bot Commands
+
+> **Date Added**: March 2026
+
+The Telegram bot (`Trading_cpp/telegram_listener.py`) provides full control over the trading system via chat commands.
+
+### Starting the Bot
+
+```powershell
+# Start Python API first (includes scheduler)
+cd Trading_Python
+.venv\Scripts\python.exe -m uvicorn src.api.main:app --port 8000
+
+# Then start Telegram listener (in another terminal)
+cd Trading_cpp
+.venv\Scripts\python.exe telegram_listener.py
+```
+
+The bot polls Telegram every ~2.5 minutes for new commands.
+
+---
+
+### Command Reference
+
+#### 📊 Analysis Commands
+
+| Command | Description | Files/Endpoints |
+|---------|-------------|-----------------|
+| `/analyze SYMBOL` | Get signal analysis for a stock | `telegram_listener.py:analyze_symbol()` → `/api/batch/signals` |
+| `/fundamentals SYMBOL` | Get Yahoo Finance fundamentals (P/E, market cap, etc.) | `telegram_listener.py:get_fundamentals()` (direct Yahoo API) |
+| `/signals` | Show all signals for portfolio + selected tickers | `telegram_listener.py:analyze_signals_status()` → `/api/batch/signals` or `live_signals.csv` |
+
+#### 🔄 Action Commands
+
+| Command | Description | Files/Endpoints |
+|---------|-------------|-----------------|
+| `/run` | Execute full trading pipeline (starts API, runs C++ bot) | `telegram_listener.py:run_trading_bot()` |
+| `/scrape` | Fetch latest news and update sentiment | `telegram_listener.py:scrape_news_async()` → `/api/sentiment/{symbol}` |
+| `/train` | Train ONNX models on selected tickers | `telegram_listener.py:train_models_async()` → Python training scripts |
+
+#### 📈 Market Commands
+
+| Command | Description | Files/Endpoints |
+|---------|-------------|-----------------|
+| `/sentiment` | Overall market sentiment (Bullish/Bearish) | `market_scraper.py:format_sentiment_message()` |
+| `/news` | Latest stock news headlines | `market_scraper.py:format_news_message()` |
+| `/pairs` | Pairs trading opportunities (SPY/IVV, QQQ/TQQQ, etc.) | `telegram_listener.py:get_pairs_status()` |
+| `/discover` | Sector heatmap with trending industries | `telegram_listener.py:get_discover_from_api()` → `/api/discover` |
+
+#### 💼 Portfolio Commands
+
+| Command | Description | Files/Endpoints |
+|---------|-------------|-----------------|
+| `/portfolio` | Show current holdings | `telegram_listener.py:get_portfolio()` → `portfolio.json` |
+| `/add_pos T S P` | Add/update position | `telegram_listener.py:add_position()` → `/api/portfolio/position` |
+| `/remove_pos T` | Remove position | `telegram_listener.py:remove_position()` → `/api/portfolio/position/{ticker}` |
+
+#### 🔧 Ticker Selection Commands
+*Controls which 7 tickers are trained for ML models*
+
+| Command | Description | Files/Endpoints |
+|---------|-------------|-----------------|
+| `/selected` | Show current ticker selection | `telegram_listener.py:show_ticker_selection()` |
+| `/swap OLD NEW` | Replace a ticker in selection | `telegram_listener.py:swap_ticker()` → `manual_tickers.txt` |
+| `/set T1,T2,...` | Manually set tickers (max 7) | `telegram_listener.py:set_manual_tickers()` → `manual_tickers.txt` |
+| `/addticker T` | Add ticker to selection | `telegram_listener.py:add_ticker_to_selection()` |
+| `/removeticker T` | Remove ticker from selection | `telegram_listener.py:remove_ticker_from_selection()` |
+| `/auto` | Revert to intelligent selection | `telegram_listener.py:swap_ticker("AUTO")` → removes `manual_tickers.txt` |
+
+#### 🚫 Exclusion Commands
+*Prevents tickers from appearing in hourly optimization*
+
+| Command | Description | Files/Endpoints |
+|---------|-------------|-----------------|
+| `/exclusions` | List active exclusions with expiry | `telegram_listener.py:get_exclusions()` → `/api/portfolio/exclusions` |
+| `/allow TICKER` | Clear exclusion early | `telegram_listener.py:clear_exclusion()` → `/api/portfolio/exclusions/{ticker}` |
+
+---
+
+### Signal Notifications
+
+When a signal **changes** (e.g., HOLD → BUY), the bot sends an inline keyboard:
+
+```
+🚨 BUY SIGNAL: NVDA
+
+Expected Return: +2.5% (Clears USD FX Hurdle)
+Current Price: $450.00
+
+🧠 Model Rationale:
+RSI oversold, MACD crossover, positive news sentiment
+
+[✅ ACCEPT]  [❌ REJECT]
+```
+
+- **Accept**: Executes via `/api/portfolio/execute/{trade_id}` and clears any exclusion
+- **Reject**: Adds ticker to `user_exclusions.json` for 2 hours (capped at 4 PM market close)
+
+---
+
+### Key Data Files
+
+| File | Purpose | Managed By |
+|------|---------|-----------|
+| `portfolio.json` | Portfolio holdings | Python API |
+| `selected_tickers.txt` | Currently selected 7 tickers | Python scheduler |
+| `manual_tickers.txt` | Manual ticker override | Telegram commands |
+| `user_exclusions.json` | Rejected tickers with TTL | Telegram Reject + API |
+| `news.db` | Sentiment articles/scores | Python news scraper |
+| `pending_notifications.json` | Signal change notifications | Python scheduler |
+
+---
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/portfolio` | GET | Get portfolio |
+| `/api/portfolio/position` | POST | Add/update position |
+| `/api/portfolio/position/{ticker}` | DELETE | Remove position |
+| `/api/portfolio/exclusions` | GET | List exclusions |
+| `/api/portfolio/exclusions/{ticker}` | POST | Add exclusion |
+| `/api/portfolio/exclusions/{ticker}` | DELETE | Remove exclusion |
+| `/api/batch/signals` | GET | Get signals for multiple tickers |
+| `/api/sentiment/{symbol}` | GET | Get sentiment for ticker |
+| `/api/discover` | GET | Sector heatmap data |
+| `/api/models/select-tickers` | POST | Select tickers for training |
+
+---
+
+### Scheduler Jobs
+
+The Python scheduler runs automatically when the API starts:
+
+| Job | Trigger | Action |
+|-----|---------|--------|
+| `scrape_news` | `:30 every hour` | Fetch RSS news, classify, store in `news.db` |
+| `update_features` | `every 15 min` | Update cached technical indicators |
+| `generate_signals` | `:00 every hour` | Generate BUY/SELL/HOLD signals, write notifications |
+| `retrain_models` | `4:00 PM daily` | Retrain ONNX models on selected tickers |
+
+**Market Hours**: All jobs only run during 9 AM - 4 PM ET, weekdays.
