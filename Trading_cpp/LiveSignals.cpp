@@ -46,7 +46,12 @@ void LiveSignalsRunner::sendStatus() {
     sendPeriodicStatus();
 }
 
+// DEPRECATED: This function reads from tickers.csv which is no longer the source of truth.
+// Trading-cpp should receive tickers from Python API (portfolio.json + selected_tickers.txt).
+// This function is kept for backwards compatibility but will be removed in a future version.
 void LiveSignalsRunner::loadTickers(const std::string& tickerFile) {
+    std::cerr << "[DEPRECATED] loadTickers() is deprecated - use addTicker() with tickers from Python API" << std::endl;
+
     std::ifstream file(tickerFile);
     if (!file.is_open()) {
         std::cerr << "Failed to open ticker file: " << tickerFile << std::endl;
@@ -694,10 +699,14 @@ double LiveSignalsRunner::getNewsSentiment(const std::string& symbol) {
     return 0.0; // Neutral sentiment
 }
 
-// Entry point
+// DEPRECATED: Entry point for live signals mode.
+// DEPRECATED: This mode reads from tickers.csv which is no longer the source of truth.
+// DEPRECATED: Trading-cpp should be invoked by Python API with specific tickers to analyze.
+// DEPRECATED: This function will be removed in a future version.
 void runLiveSignals(const LiveSignalsConfig& config) {
+    std::cerr << "[DEPRECATED] runLiveSignals() is deprecated - invoke via Python API instead" << std::endl;
     LiveSignalsRunner runner(config);
-    runner.loadTickers("tickers.csv");
+    runner.loadTickers("tickers.csv");  // DEPRECATED: Should use tickers from Python API
     runner.initialize();
     runner.run();
 }

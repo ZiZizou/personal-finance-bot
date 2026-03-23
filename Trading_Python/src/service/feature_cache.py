@@ -255,6 +255,30 @@ class SignalCache:
             logger.error(f"Error saving signal for {ticker}: {e}")
             return False
 
+    def get_previous_signal(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Get the previous signal for a ticker before the current one."""
+        import json
+        prev_path = self.cache_dir / f"{ticker.upper()}_signal_prev.json"
+        if not prev_path.exists():
+            return None
+        try:
+            with open(prev_path, 'r') as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    def set_previous_signal(self, ticker: str, signal: Dict[str, Any]) -> bool:
+        """Store the previous signal before updating to new one."""
+        import json
+        prev_path = self.cache_dir / f"{ticker.upper()}_signal_prev.json"
+        try:
+            with open(prev_path, 'w') as f:
+                json.dump(signal, f, indent=2, default=str)
+            return True
+        except Exception as e:
+            logger.error(f"Error saving previous signal: {e}")
+            return False
+
     def get_all_signals(self) -> Dict[str, Dict[str, Any]]:
         """
         Get all cached signals.

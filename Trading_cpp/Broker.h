@@ -5,6 +5,23 @@
 #include <map>
 #include <cstdint>
 
+// =============================================================================
+// DEPRECATED: Broker.h - Portfolio management is now handled by Python API
+// =============================================================================
+// This header defines the IBroker interface and PaperBroker implementation.
+//
+// DEPRECATED: Trading-cpp should NOT manage portfolios. All portfolio management
+// is handled by Python API via portfolio.json and REST endpoints.
+//
+// The Python API provides:
+//   - GET  /api/portfolio           - Get portfolio
+//   - POST /api/portfolio/position  - Add/update position
+//   - DELETE /api/portfolio/position/{ticker} - Remove position
+//   - POST /api/portfolio/execute/{trade_id}  - Execute accepted trade
+//
+// This header is kept for backwards compatibility but will be removed.
+// =============================================================================
+
 // Order side
 enum class OrderSide { Buy, Sell };
 
@@ -92,7 +109,7 @@ public:
     virtual Result<double> getCurrentPrice(const std::string& symbol) = 0;
 };
 
-// Paper trading broker (for testing without real money)
+// DEPRECATED: Paper trading broker - portfolio management is now handled by Python API
 class PaperBroker : public IBroker {
 public:
     explicit PaperBroker(double initialCash = 100000.0);

@@ -239,7 +239,13 @@ int main() {
     std::cout << "[DEBUG] Telegram Chat ID set: " << (tgChatId.empty() ? "NO" : "YES") << std::endl;
 
     if (mode == "live_signals") {
-        Logger::getInstance().log("Starting in LIVE SIGNALS mode...");
+        // DEPRECATED: This mode reads from tickers.csv which is no longer the source of truth.
+        // Trading-cpp should be invoked by Python API with specific tickers to analyze.
+        // This mode will be removed in a future version.
+        Logger::getInstance().log("DEPRECATED: live_signals mode is deprecated.");
+        Logger::getInstance().log("Use Python API to manage tickers and invoke C++ for analysis.");
+
+        Logger::getInstance().log("Starting in LIVE SIGNALS mode (deprecated)...");
 
         // Configure live signals from environment
         LiveSignalsConfig liveConfig;
@@ -260,7 +266,10 @@ int main() {
         return 0;
     }
 
-    // Scheduled mode: runs once and exits - ideal for Windows Task Scheduler
+    // DEPRECATED: Scheduled mode - runs once and exits - ideal for Windows Task Scheduler
+    // DEPRECATED: This mode reads from tickers.csv directly. It should be invoked by Python API instead.
+    // DEPRECATED: The Python scheduler (scheduler.py) handles hourly signal generation.
+    // DEPRECATED: C++ should only perform ONNX inference when called by Python with specific tickers.
     if (mode == "scheduled") {
         // Check if market is open (weekdays 8AM-6PM ET)
         auto nowET = MarketClock::nowET();
@@ -274,7 +283,8 @@ int main() {
             return 0;
         }
 
-        Logger::getInstance().log("Starting in SCHEDULED mode (single run)...");
+        Logger::getInstance().log("DEPRECATED: scheduled mode - C++ should be invoked by Python API");
+        Logger::getInstance().log("Starting in SCHEDULED mode (deprecated - use Python scheduler instead)...");
 
         // Configure live signals from environment
         LiveSignalsConfig liveConfig;
@@ -291,7 +301,7 @@ int main() {
 
         // Create runner and run once
         LiveSignalsRunner runner(liveConfig);
-        runner.loadTickers("tickers.csv");
+        runner.loadTickers("tickers.csv");  // DEPRECATED: Use Python API instead
         runner.initialize();
 
         // Run once and send signals
@@ -313,7 +323,13 @@ int main() {
     // Initialize sentiment analyzer
     SentimentAnalyzer::getInstance().init();
 
+    // DEPRECATED: Tickers should come from Python API (portfolio.json + selected_tickers.txt)
+    // This fallback reads tickers.csv for backwards compatibility only.
     std::vector<Ticker> tickers = readTickers("tickers.csv");
+    if (tickers.empty()) {
+        Logger::getInstance().log("Warning: No tickers loaded from tickers.csv");
+        Logger::getInstance().log("Trading-cpp should receive tickers from Python API");
+    }
     MLPredictor mlModel;
 
     // Initialize ONNX predictor if enabled

@@ -201,6 +201,7 @@ CHAT_ID = os.environ.get("STOCK_TELEGRAM_CHAT_ID", "")
 TICKERS_FILE = "tickers.csv"
 LIVE_SIGNALS_FILE = "live_signals.csv"
 PORTFOLIO_CSV = "C:\\Users\\Atharva\\Documents\\Trading_super\\Trading_Python\\data\\portfolio.csv"
+PORTFOLIO_JSON = "C:\\Users\\Atharva\\Documents\\Trading_super\\Trading_Python\\data\\portfolio.json"
 
 # Trade signals pending human acceptance
 _pending_trades = {}
@@ -256,12 +257,17 @@ def check_single_instance():
 
 
 def is_python_api_running():
-    """Check if Python API is running."""
-    try:
-        response = requests.get(f"{PYTHON_API_URL}/health", timeout=2)
-        return response.status_code == 200
-    except Exception:
-        return False
+    """Check if Python API is running with retry."""
+    import time
+    for attempt in range(3):
+        try:
+            response = requests.get(f"{PYTHON_API_URL}/health", timeout=2)
+            if response.status_code == 200:
+                return True
+        except Exception:
+            if attempt < 2:
+                time.sleep(1)  # Wait 1s before retry
+    return False
 
 
 def wait_for_python_api(timeout=30):
@@ -523,81 +529,52 @@ def answer_callback(callback_id, text="OK"):
 
 
 def load_tickers():
-    """Load tickers from CSV file"""
-    tickers = []
-    try:
-        with open(TICKERS_FILE, 'r') as f:
-            reader = csv.reader(f)
-            next(reader)  # Skip header
-            for row in reader:
-                if row:
-                    tickers.append((row[0], row[1] if len(row) > 1 else "stock"))
-    except FileNotFoundError:
-        pass
-    return tickers
+    """DEPRECATED: Tickers are now managed by Python API via portfolio.json and selected_tickers.txt.
+    This function returns an empty list. Use get_portfolio_tickers() and get_selected_tickers() instead.
+    """
+    # Return empty - tickers.csv is no longer the source of truth
+    return []
 
 def save_tickers(tickers):
-    """Save tickers to CSV file"""
-    with open(TICKERS_FILE, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(["symbol", "type"])
-        for sym, typ in tickers:
-            writer.writerow([sym, typ])
+    """DEPRECATED: Tickers are now managed by Python API.
+    Writing to tickers.csv is no longer supported.
+    """
+    print("Warning: save_tickers() is deprecated - tickers are managed by Python API")
+    return False
 
 def add_ticker(symbol):
-    """Add a ticker to the watchlist"""
-    symbol = symbol.upper().strip()
-    tickers = load_tickers()
-
-    # Check if already exists
-    for sym, typ in tickers:
-        if sym == symbol:
-            return f"⚠️ {symbol} is already in the watchlist!"
-
-    tickers.append((symbol, "stock"))
-    save_tickers(tickers)
-    return f"✅ Added {symbol} to watchlist"
+    """DEPRECATED: Watchlist management is handled by Python API.
+    Use the Python API endpoints /api/portfolio/position to manage holdings.
+    """
+    return "⚠️ /add is deprecated. Portfolio management is now handled by Python API.\nUse /add_pos TICKER SHARES PRICE to add a holding."
 
 def remove_ticker(symbol):
-    """Remove a ticker from the watchlist"""
-    symbol = symbol.upper().strip()
-    tickers = load_tickers()
-
-    new_tickers = [(s, t) for s, t in tickers if s != symbol]
-    if len(new_tickers) == len(tickers):
-        return f"⚠️ {symbol} not found in watchlist"
-
-    save_tickers(new_tickers)
-    return f"✅ Removed {symbol} from watchlist"
+    """DEPRECATED: Watchlist management is handled by Python API.
+    """
+    return "⚠️ /remove is deprecated. Portfolio management is now handled by Python API.\nUse /remove_pos TICKER to remove a holding."
 
 def list_tickers():
-    """List all tickers"""
-    tickers = load_tickers()
-    if not tickers:
-        return "📋 Watchlist is empty"
-
-    count = len(tickers)
-    ticker_list = "\n".join([f"• {s} ({t})" for s, t in tickers[:20]])
-    if count > 20:
-        ticker_list += f"\n... and {count - 20} more"
-    return f"📋 Watchlist ({count} tickers):\n{ticker_list}"
+    """DEPRECATED: Use /portfolio to see holdings and /selected to see promising tickers.
+    """
+    return "⚠️ /list is deprecated.\nUse /portfolio for holdings or /selected for promising tickers."
 
 # ============== Portfolio Management Functions ==============
 
 def load_portfolio():
-    """Load portfolio from CSV file"""
+    """Load portfolio from JSON file (same format as Python API)."""
+    import json
     positions = []
-    if not os.path.exists(PORTFOLIO_CSV):
+    if not os.path.exists(PORTFOLIO_JSON):
         return positions
     try:
-        with open(PORTFOLIO_CSV, 'r') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
+        with open(PORTFOLIO_JSON, 'r') as f:
+            data = json.load(f)
+            for pos in data.get("positions", []):
                 positions.append({
-                    'Ticker': row.get('Ticker', ''),
-                    'Shares': float(row.get('Shares', 0)),
-                    'AvgCost': float(row.get('AvgCost', 0)),
-                    'Currency': row.get('Currency', 'USD')
+                    'Ticker': pos.get('ticker', ''),
+                    'Shares': float(pos.get('shares', 0)),
+                    'AvgCost': float(pos.get('avgCost', 0)),
+                    'Currency': pos.get('currency', 'USD')
                 })
     except Exception as e:
         print(f"Error loading portfolio: {e}")
@@ -605,17 +582,37 @@ def load_portfolio():
 
 
 def save_portfolio(positions):
-    """Save portfolio to CSV file"""
+    """Save portfolio to CSV file - DEPRECATED: Python API handles all portfolio modifications via HTTP endpoints."""
+    print("Warning: save_portfolio() is deprecated - portfolio changes should go through Python API /api/portfolio/* endpoints")
+    return False
+
+
+def send_pending_notifications():
+    """Send any pending signal notifications from Python."""
+    import json
+    notification_file = "C:\\Users\\Atharva\\Documents\\Trading_super\\Trading_Python\\data\\pending_notifications.json"
+
+    if not os.path.exists(notification_file):
+        return
+
     try:
-        with open(PORTFOLIO_CSV, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=['Ticker', 'Shares', 'AvgCost', 'Currency'])
-            writer.writeheader()
-            for pos in positions:
-                writer.writerow(pos)
-        return True
+        with open(notification_file, 'r') as f:
+            notifications = json.load(f)
+
+        if not notifications:
+            return
+
+        # Send each notification
+        for notif in notifications:
+            send_message(notif['message'])
+            print(f"Sent notification for {notif['ticker']}")
+
+        # Clear the file after sending
+        with open(notification_file, 'w') as f:
+            json.dump([], f)
+
     except Exception as e:
-        print(f"Error saving portfolio: {e}")
-        return False
+        print(f"Error sending pending notifications: {e}")
 
 
 def get_portfolio():
@@ -880,14 +877,49 @@ def get_all_signals():
 
     return list(latest_signals.values())
 
+def get_monitored_tickers():
+    """Get tickers to monitor: portfolio holdings + promising candidates.
+
+    This is the correct source of truth - managed by Python API.
+    """
+    tickers = set()
+
+    # Get portfolio tickers from JSON
+    try:
+        with open(PORTFOLIO_JSON, 'r') as f:
+            import json
+            data = json.load(f)
+            for pos in data.get("positions", []):
+                if pos.get('shares', 0) > 0:
+                    tickers.add(pos.get('ticker', '').upper())
+    except Exception as e:
+        print(f"Could not load portfolio tickers: {e}")
+
+    # Get selected tickers from selected_tickers.txt
+    try:
+        selected_file = "C:\\Users\\Atharva\\Documents\\Trading_super\\Trading_Python\\models\\selected_tickers.txt"
+        if os.path.exists(selected_file):
+            with open(selected_file, 'r') as f:
+                content = f.read().strip()
+                if content:
+                    for t in content.split(','):
+                        t = t.strip().upper()
+                        if t:
+                            tickers.add(t)
+    except Exception as e:
+        print(f"Could not load selected tickers: {e}")
+
+    return list(tickers)
+
+
 def analyze_signals_status(include_market_data=True):
     """Analyze all signals and return status summary.
 
-    Uses hybrid approach: tries Python API first, falls back to live_signals.csv.
+    Gets tickers from portfolio + selected tickers (managed by Python API).
+    Tries Python API first, falls back to live_signals.csv as last resort.
     """
-    # First try to get signals from Python API
-    tickers = load_tickers()
-    ticker_symbols = [t[0] for t in tickers]
+    # Get tickers from portfolio + selected (Python API managed)
+    ticker_symbols = get_monitored_tickers()
 
     signals = None
     signals_from_api = False
@@ -899,7 +931,7 @@ def analyze_signals_status(include_market_data=True):
             signals_from_api = True
             print(f"Using {len(signals)} signals from Python API")
 
-    # Fall back to CSV if API unavailable
+    # Fall back to CSV only if API unavailable and no tickers from portfolio
     if signals is None:
         signals = get_all_signals()
         print(f"Using {len(signals)} signals from live_signals.csv")
@@ -1084,23 +1116,40 @@ def get_last_analysis(symbol):
         return None
 
 def analyze_symbol(symbol):
-    """Analyze a symbol - return last analysis or add to watchlist"""
+    """Analyze a symbol using Python API signals.
+
+    DEPRECATED: This no longer uses a watchlist. Analysis comes from Python API
+    for portfolio holdings and selected promising tickers.
+    """
     symbol = symbol.upper().strip()
 
-    # Check if in watchlist
-    tickers = load_tickers()
-    in_watchlist = any(s == symbol for s, t in tickers)
+    # Try to get signal from Python API
+    api_signals = get_signals_from_api([symbol])
+    if api_signals:
+        sig = api_signals[0]
+        action = sig.get('action', 'HOLD').upper()
+        confidence = sig.get('confidence', 0) * 100
+        strength = sig.get('strength', 0.5) * 100
+        price = sig.get('price')
+        reason = sig.get('reason', '')
 
-    if in_watchlist:
-        analysis = get_last_analysis(symbol)
-        if analysis:
-            return f"📊 Analysis for {symbol}:\n\n{analysis}"
-        else:
-            return f"⚠️ No analysis data for {symbol}. Run /run to generate."
-    else:
-        # Add to watchlist
-        result = add_ticker(symbol)
-        return f"{result}\n\nAnalysis will be available after running /run"
+        response = f"📊 <b>Signal for {symbol}:</b>\n"
+        response += f"Action: {action}\n"
+        response += f"Confidence: {confidence:.0f}%\n"
+        response += f"Strength: {strength:.0f}\n"
+        if price:
+            response += f"Price: ${price:.2f}\n"
+        if reason:
+            response += f"Reason: {reason}\n"
+        return response
+
+    # Fall back to live_signals.csv
+    analysis = get_last_analysis(symbol)
+    if analysis:
+        return f"📊 Analysis for {symbol} (from cache):\n\n{analysis}"
+
+    # If not found anywhere, suggest using Python API
+    return f"⚠️ No signal found for {symbol}.\nAnalysis is available for portfolio holdings and selected promising tickers managed by Python API."
 
 def get_fundamentals(symbol):
     """Fetch and format fundamental data from Yahoo Finance"""
@@ -1318,11 +1367,12 @@ def scrape_news_async():
         # Call the sentiment API which will fetch fresh news if needed
         send_message("📰 Scraping latest news...")
 
-        # Get sentiment for a few popular tickers to trigger news fetch
-        tickers = load_tickers()
-        ticker_symbols = [t[0] for t in tickers[:5]] if tickers else ["AAPL", "MSFT", "GOOGL"]
+        # Get sentiment for portfolio + selected tickers to trigger news fetch
+        ticker_symbols = get_monitored_tickers()
+        if not ticker_symbols:
+            ticker_symbols = ["AAPL", "MSFT", "GOOGL"]  # Fallback
 
-        for symbol in ticker_symbols:
+        for symbol in ticker_symbols[:7]:  # Limit to 7 tickers
             try:
                 url = f"{PYTHON_API_URL}/api/sentiment/{symbol}"
                 response = requests.get(url, timeout=10)
@@ -1850,14 +1900,13 @@ def main():
         time.sleep(3)  # Give API a moment to fully initialize
 
         try:
-            # Load tickers from C++ tickers.csv
-            tickers = load_tickers()
-            ticker_symbols = [t[0] for t in tickers]
+            # Get tickers from portfolio + selected (managed by Python API)
+            ticker_symbols = get_monitored_tickers()
 
             if not ticker_symbols:
-                # Fallback to common tickers if none in CSV
+                # Fallback to common tickers if portfolio is empty
                 ticker_symbols = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA"]
-                print(f"No tickers in CSV, using defaults: {ticker_symbols}")
+                print(f"No tickers from portfolio, using defaults: {ticker_symbols}")
 
             # Select up to 7 tickers for training
             selected_tickers = ticker_symbols[:7]
@@ -1899,6 +1948,10 @@ def main():
     while True:
         try:
             print(f"[{time.strftime('%H:%M:%S')}] Polling for updates...")
+
+            # Check for pending signal notifications from Python
+            send_pending_notifications()
+
             updates = get_updates()
             print(f"Found {len(updates)} updates")
 

@@ -42,10 +42,11 @@ class SchedulerService:
     def _setup_jobs(self):
         """Configure scheduled jobs"""
 
-        # News scraping - every hour (only during market hours)
+        # News scraping - every hour at :30 (only during market hours)
+        # Runs 30 minutes before signal generation so sentiment is available
         self.scheduler.add_job(
             self.scrape_news,
-            trigger=IntervalTrigger(hours=1),
+            trigger=CronTrigger(minute=30),  # Run at :30 of every hour
             id="scrape_news",
             name="Scrape News",
             replace_existing=True
@@ -60,10 +61,11 @@ class SchedulerService:
             replace_existing=True
         )
 
-        # Signal generation - every 5 minutes (only during market hours)
+        # Signal generation - hourly at top of hour (only during market hours)
+        # Changed from 5-minute interval to hourly to reduce noise and align with human-in-the-loop
         self.scheduler.add_job(
             self.generate_signals,
-            trigger=IntervalTrigger(minutes=5),
+            trigger=CronTrigger(hour="*", minute=0),
             id="generate_signals",
             name="Generate Signals",
             replace_existing=True
@@ -178,22 +180,54 @@ class SchedulerService:
             logger.error(f"Feature update failed: {e}")
 
     def generate_signals(self):
-        """Background signal generation task - only runs during market hours"""
+        """Background signal generation task - runs hourly during market hours"""
         # Check if we should run (market hours check)
         if not should_run_scheduled_task():
             logger.debug("Skipping signal generation - outside market hours")
             return
 
-        logger.info("Starting scheduled signal generation...")
+        logger.info("Starting scheduled signal generation (hourly)...")
 
         try:
-            # 1. Load cached features and ticker list
-            from src.data import load_cpp_tickers
+            # 1. Load tickers to monitor: portfolio holdings + promising candidates
             from src.service.feature_cache import FeatureCache, SignalCache
+            from src.api.routes.portfolio import _load_portfolio
 
-            tickers = load_cpp_tickers()
+            # Get portfolio tickers (holdings to monitor for rebalancing)
+            portfolio_tickers = []
+            try:
+                portfolio_data = _load_portfolio()
+                portfolio_tickers = [p['ticker'].upper() for p in portfolio_data.get('positions', []) if p.get('shares', 0) > 0]
+                logger.info(f"Portfolio tickers to monitor: {portfolio_tickers}")
+            except Exception as e:
+                logger.warning(f"Could not load portfolio tickers: {e}")
+
+            # Get selected tickers (promising stocks for new opportunities)
+            selected_tickers = []
+            selected_file = Path("./models/selected_tickers.txt")
+            if selected_file.exists():
+                try:
+                    content = selected_file.read_text().strip()
+                    if content:
+                        selected_tickers = [t.strip().upper() for t in content.split(',') if t.strip()]
+                        logger.info(f"Selected tickers to monitor: {selected_tickers}")
+                except Exception as e:
+                    logger.warning(f"Could not load selected tickers: {e}")
+
+            # Combine and deduplicate: portfolio + selected tickers
+            all_tickers = list(set(portfolio_tickers + selected_tickers))
+
+            if not all_tickers:
+                logger.warning("No tickers to monitor for signals")
+                return
+
+            tickers = all_tickers
             feature_cache = FeatureCache(ttl=900)
             signal_cache = SignalCache()
+
+            # Create sets for efficient lookup
+            portfolio_tickers_set = set(portfolio_tickers)
+            selected_tickers_set = set(selected_tickers)
 
             # 2. Try to load ONNX model for inference
             onnx_model = None
@@ -255,17 +289,56 @@ class SchedulerService:
                         # Fallback: simple technical analysis
                         signal_type, confidence = self._generate_fallback_signal(latest)
 
-                    # Create signal dict
+                    # Get news sentiment for this ticker
+                    sentiment_score = 0.0
+                    try:
+                        from src.news.database import NewsDatabase
+                        db = NewsDatabase("./data/news.db")
+                        sentiment_score = db.get_cumulative_score(ticker, days=7)
+                    except Exception as e:
+                        logger.warning(f"Could not get sentiment for {ticker}: {e}")
+
+                    # Normalize sentiment to -1 to 1 range (scores are typically -30 to +30)
+                    sentiment_normalized = max(-1.0, min(1.0, sentiment_score / 30.0))
+
+                    # Adjust confidence based on sentiment alignment
+                    # If sentiment is strongly negative and signal is buy, reduce confidence
+                    if signal_type == "buy" and sentiment_normalized < -0.3:
+                        confidence = confidence * 0.5
+                        logger.info(f"{ticker}: Buy signal reduced due to negative sentiment ({sentiment_normalized:.2f})")
+                    elif signal_type == "sell" and sentiment_normalized > 0.3:
+                        confidence = confidence * 0.5
+                        logger.info(f"{ticker}: Sell signal reduced due to positive sentiment ({sentiment_normalized:.2f})")
+
+                    # Get old signal before updating
+                    old_signal = signal_cache.get_signal(ticker)
+
+                    # Create signal dict with sentiment
                     signal = {
                         "ticker": ticker.upper(),
                         "signal": signal_type,
                         "confidence": float(confidence),
                         "timestamp": datetime.now().isoformat(),
                         "price": float(latest['Close'].iloc[-1]) if 'Close' in latest.columns else None,
-                        "source": "scheduler"
+                        "source": "scheduler",
+                        "sentiment_score": sentiment_normalized
                     }
 
-                    # Cache the signal
+                    # If signal changed to buy/sell, write notification for C++ listener
+                    if old_signal:
+                        old_type = old_signal.get('signal', 'hold')
+                        new_type = signal['signal']
+                        if old_type != new_type and new_type in ['buy', 'sell']:
+                            is_portfolio_ticker = ticker.upper() in portfolio_tickers_set
+                            is_selected_ticker = ticker.upper() in selected_tickers_set
+                            self._write_notification(ticker, old_signal, signal,
+                                                   is_portfolio=is_portfolio_ticker,
+                                                   is_selected=is_selected_ticker)
+
+                    # Save current as previous for next iteration
+                    signal_cache.set_previous_signal(ticker, old_signal if old_signal else signal)
+
+                    # Cache the new signal
                     signal_cache.set_signal(ticker, signal)
                     generated += 1
 
@@ -900,6 +973,61 @@ class SchedulerService:
         logger.info("Stopping background scheduler...")
         self.scheduler.shutdown()
         logger.info("Scheduler stopped")
+
+    def _write_notification(self, ticker: str, old_signal: dict, new_signal: dict,
+                          is_portfolio: bool = False, is_selected: bool = False):
+        """Write notification to file for C++ listener to send."""
+        import json
+        from pathlib import Path
+
+        try:
+            notification_file = Path("./data/pending_notifications.json")
+            notifications = []
+
+            # Load existing if present
+            if notification_file.exists():
+                with open(notification_file, 'r') as f:
+                    notifications = json.load(f)
+
+            # Format message based on ticker type
+            new_type = new_signal.get('signal', 'hold')
+            price = new_signal.get('price')
+            confidence = new_signal.get('confidence', 0) * 100
+            sentiment = new_signal.get('sentiment_score', 0)
+            old_type = old_signal.get('signal', 'hold') if old_signal else 'none'
+
+            if is_portfolio and is_selected:
+                # Overlap: portfolio holding that's also a promising candidate
+                emoji = "📊"
+                msg = f"{emoji} <b>Portfolio Rebalance: {new_type.upper()} {ticker}</b>\n"
+                msg += f"⭐ Also a top promising candidate\n"
+            elif is_portfolio:
+                emoji = "📊"
+                msg = f"{emoji} <b>Portfolio Rebalance: {new_type.upper()} {ticker}</b>\n"
+            else:
+                emoji = "💡"
+                msg = f"{emoji} <b>New Opportunity: {new_type.upper()} {ticker}</b>\n"
+
+            msg += f"Price: ${price:.2f}\n" if price else ""
+            msg += f"Confidence: {confidence:.0f}%\n"
+            msg += f"Sentiment: {sentiment:+.2f}\n"
+            msg += f"Changed from: {old_type.upper()}"
+
+            notifications.append({
+                "ticker": ticker,
+                "message": msg,
+                "timestamp": datetime.now().isoformat(),
+                "is_portfolio": is_portfolio,
+                "is_selected": is_selected
+            })
+
+            with open(notification_file, 'w') as f:
+                json.dump(notifications, f, indent=2)
+
+            logger.info(f"Wrote notification for {ticker} to pending_notifications.json (portfolio={is_portfolio}, selected={is_selected})")
+
+        except Exception as e:
+            logger.warning(f"Failed to write notification: {e}")
 
     def get_jobs(self):
         """Get list of scheduled jobs"""

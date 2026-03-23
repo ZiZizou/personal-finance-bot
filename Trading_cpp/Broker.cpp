@@ -4,6 +4,24 @@
 #include <iomanip>
 #include <map>
 
+// =============================================================================
+// DEPRECATED: PaperBroker is deprecated.
+// =============================================================================
+// Portfolio management is now handled entirely by Python API via portfolio.json.
+// The Python API provides REST endpoints for portfolio operations:
+//   - GET  /api/portfolio           - Get portfolio
+//   - POST /api/portfolio/position   - Add/update position
+//   - DELETE /api/portfolio/position/{ticker} - Remove position
+//   - POST /api/portfolio/execute/{trade_id}  - Execute accepted trade
+//
+// Trading-cpp should NOT manage portfolios. It should only:
+//   - Perform ONNX inference when called by Python API
+//   - Do technical analysis on tickers provided by Python
+//   - Write signals to files for Python to read
+//
+// This file is kept for backwards compatibility but will be removed.
+// =============================================================================
+
 // PaperBroker implementation
 
 PaperBroker::PaperBroker(double initialCash)
